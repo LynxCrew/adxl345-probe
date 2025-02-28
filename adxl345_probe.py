@@ -13,6 +13,41 @@ TAP_SCALE = 0.0625 * adxl345.FREEFALL_ACCEL  # 62.5mg/LSB * Earth gravity in mm/
 ADXL345_REST_TIME = .1
 
 
+class ADXL345Endstop:
+    def __init__(self, adxl345probe):
+        self.adxl345probe = adxl345probe
+        self.printer = adxl345probe.printer
+        self.mcu_endstop = None
+
+    def setup_pin(self, pin_type, pin_params):
+        # Validate pin
+        ppins = self.printer.lookup_object("pins")
+        if pin_type != "endstop" or pin_params["pin"] != "virtual_endstop":
+            raise ppins.error("probe virtual endstop only useful as endstop")
+        if pin_params["invert"] or pin_params["pullup"]:
+            raise ppins.error("Can not pullup/invert tmc virtual pin")
+        # Setup for sensorless homing
+        self.printer.register_event_handler(
+            "homing:homing_move_begin", self.handle_homing_move_begin
+        )
+        self.printer.register_event_handler(
+            "homing:homing_move_end", self.handle_homing_move_end
+        )
+        self.mcu_endstop = self.adxl345probe.mcu_endstop
+        return self.mcu_endstop
+
+    def handle_homing_move_begin(self, hmove):
+        if self.mcu_endstop not in hmove.get_mcu_endstops():
+            return
+        self.adxl345probe.probe_prepare(hmove)
+
+    def handle_homing_move_end(self, hmove):
+        if self.mcu_endstop not in hmove.get_mcu_endstops():
+            return
+        self.adxl345probe.probe_finish(hmove)
+
+
+
 class ADXL345Probe:
     def __init__(self, config):
         self.printer = config.get_printer()
@@ -43,6 +78,8 @@ class ADXL345Probe:
                                       can_pullup=True)
         mcu = pin_params['chip']
         self.mcu_endstop = mcu.setup_pin('endstop', pin_params)
+        self.enable_x_homing = config.getboolean('enable_x_homing', False)
+        self.enable_y_homing = config.getboolean('enable_y_homing', False)
         # Add wrapper methods for endstops
         self.get_mcu = self.mcu_endstop.get_mcu
         self.add_stepper = self.mcu_endstop.add_stepper
@@ -55,10 +92,11 @@ class ADXL345Probe:
         self.gcode.register_mux_command("SET_ACCEL_PROBE", "CHIP", None, self.cmd_SET_ACCEL_PROBE, desc=self.cmd_SET_ACCEL_PROBE_help)
         self.printer.register_event_handler('klippy:connect', self.init_adxl)
         self.printer.register_event_handler('klippy:mcu_identify', self.handle_mcu_identify)
-        self.cmd_helper = probe.ProbeCommandHelper(config, self, self.query_endstop)
-        self.probe_offsets = probe.ProbeOffsetsHelper(config)
-        self.probe_session = probe.ProbeSessionHelper(config, self)
-        self.printer.add_object('probe', self)
+        if self.enable_x_homing:
+            ppins.register_chip("probe_x", ADXL345Endstop(self))
+        if self.enable_y_homing:
+            ppins.register_chip("probe_y", ADXL345Endstop(self))
+
 
     def init_adxl(self):
         chip = self.adxl345
@@ -101,18 +139,6 @@ class ADXL345Probe:
 
     def get_position_endstop(self):
         return self.position_endstop
-
-    def get_probe_params(self, gcmd=None):
-        return self.probe_session.get_probe_params(gcmd)
-
-    def get_offsets(self):
-        return self.probe_offsets.get_offsets()
-
-    def get_status(self, eventtime):
-        return self.cmd_helper.get_status(eventtime)
-
-    def start_probe_session(self, gcmd):
-        return self.probe_session.start_probe_session(gcmd)
 
     def _try_clear_tap(self):
         chip = self.adxl345
@@ -171,4 +197,6 @@ class ADXL345Probe:
 
 
 def load_config(config):
-    return ADXL345Probe(config)
+    adxl345probe = ADXL345Probe(config)
+    config.get_printer().add_object("probe", probe.PrinterProbe(config, adxl345probe))
+    return adxl345probe
