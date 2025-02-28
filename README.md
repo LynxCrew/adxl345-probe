@@ -1,3 +1,5 @@
+# This is a fork of the ADXL-Probe by jniebuhr to allow x and y homing with it, full credits go to the original project and the original license still applies
+
 # ADXL345 Probe
 [![](https://dcbadge.vercel.app/api/server/APw7rgPGPf)](https://delta2.eu/discord)
 [![CC BY-NC-SA 4.0][cc-by-nc-sa-shield]][cc-by-nc-sa]
