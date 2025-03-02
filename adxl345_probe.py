@@ -39,12 +39,12 @@ class ADXL345Endstop:
     def handle_homing_move_begin(self, hmove):
         if self.mcu_endstop not in hmove.get_mcu_endstops():
             return
-        self.adxl345probe.probe_prepare(hmove, homing=True)
+        self.adxl345probe.probe_prepare(hmove, xy_homing=True)
 
     def handle_homing_move_end(self, hmove):
         if self.mcu_endstop not in hmove.get_mcu_endstops():
             return
-        self.adxl345probe.probe_finish(hmove, homing=True)
+        self.adxl345probe.probe_finish(hmove, xy_homing=True)
 
 
 
