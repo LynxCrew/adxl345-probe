@@ -93,7 +93,7 @@ class ADXL345Probe:
         self.probe = probe.PrinterProbe(config, self)
         self._setup_pin = self.probe.setup_pin
         self.probe.setup_pin = self.setup_pin
-        self.printer.add_object("probe", self.probe)
+        self.printer.add_object("adxl_probe", self.probe)
         self.printer.register_event_handler('klippy:connect', self.init_adxl)
         self.printer.register_event_handler('klippy:mcu_identify', self.handle_mcu_identify)
 
@@ -205,6 +205,4 @@ class ADXL345Probe:
 
 
 def load_config(config):
-    adxl345probe = ADXL345Probe(config)
-    config.get_printer().add_object("probe", probe.PrinterProbe(config, adxl345probe))
-    return adxl345probe
+    return ADXL345Probe(config)
