@@ -24,7 +24,7 @@ I also measured the force on the bed using a standard kitchen scale, this was ap
 
 ```bash
 cd $HOME
-git clone https://github.com/jniebuhr/adxl345-probe
+git clone https://github.com/LynxCrew/adxl345-probe
 cd adxl345-probe
 ./scripts/install.sh
 ```
