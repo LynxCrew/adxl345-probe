@@ -70,7 +70,8 @@ class ADXL345Probe:
         probe_pin = config.get('probe_pin')
         adxl345_name = config.get('chip', 'adxl345')
         self.int_map = 0x40 if int_pin == 'int2' else 0x0
-        self.tap_thresh = config.getfloat('tap_thresh', 5000, minval=TAP_SCALE, maxval=100000.)
+        self.tap_scale = config.getfloat('tap_scale', TAP_SCALE)
+        self.tap_thresh = config.getfloat('tap_thresh', 5000, minval=self.tap_scale, maxval=100000.)
         self.tap_dur = config.getfloat('tap_dur', 0.01, above=DUR_SCALE, maxval=0.1)
         self.position_endstop = config.getfloat('z_offset')
         self.disable_fans = [fan.strip() for fan in config.get("disable_fans", "").split(",") if fan]
@@ -117,7 +118,7 @@ class ADXL345Probe:
             chip.set_reg(adxl345.REG_DATA_FORMAT, 0x2B)
         chip.set_reg(REG_INT_MAP, self.int_map)
         chip.set_reg(REG_TAP_AXES, 0x7)
-        chip.set_reg(REG_THRESH_TAP, int(self.tap_thresh / TAP_SCALE))
+        chip.set_reg(REG_THRESH_TAP, int(self.tap_thresh / self.tap_scale))
         chip.set_reg(REG_DUR, int(self.tap_dur / DUR_SCALE))
 
     def handle_mcu_identify(self):
@@ -200,10 +201,10 @@ class ADXL345Probe:
     def cmd_SET_ACCEL_PROBE(self, gcmd):
         chip = self.adxl345
         self.tap_thresh = gcmd.get_float('TAP_THRESH', self.tap_thresh,
-                                         minval=TAP_SCALE, maxval=100000.)
+                                         minval=self.tap_scale, maxval=100000.)
         self.tap_dur = gcmd.get_float('TAP_DUR', self.tap_dur,
                                       above=DUR_SCALE, maxval=0.1)
-        chip.set_reg(REG_THRESH_TAP, int(self.tap_thresh / TAP_SCALE))
+        chip.set_reg(REG_THRESH_TAP, int(self.tap_thresh / self.tap_scale))
         chip.set_reg(REG_DUR, int(self.tap_dur / DUR_SCALE))
 
 
