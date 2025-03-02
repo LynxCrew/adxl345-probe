@@ -39,12 +39,12 @@ class ADXL345Endstop:
     def handle_homing_move_begin(self, hmove):
         if self.mcu_endstop not in hmove.get_mcu_endstops():
             return
-        self.adxl345probe.probe_prepare(hmove)
+        self.adxl345probe.probe_prepare(hmove, homing=True)
 
     def handle_homing_move_end(self, hmove):
         if self.mcu_endstop not in hmove.get_mcu_endstops():
             return
-        self.adxl345probe.probe_finish(hmove)
+        self.adxl345probe.probe_finish(hmove, homing=True)
 
 
 
@@ -57,6 +57,7 @@ class ADXL345Probe:
         int_pin = config.get('int_pin').strip()
         self.inverted = False
         self.is_measuring = False
+        self._in_multi_probe = False
         if int_pin.startswith('!'):
             self.inverted = True
             int_pin = int_pin[1:].strip()
@@ -155,7 +156,7 @@ class ADXL345Probe:
             tries -= 1
         return False
 
-    def probe_prepare(self, hmove):
+    def probe_prepare(self, hmove, xy_homing=False):
         self.activate_gcode.run_gcode_from_command()
         chip = self.adxl345
         toolhead = self.printer.lookup_object('toolhead')
@@ -171,10 +172,10 @@ class ADXL345Probe:
             chip.set_reg(adxl345.REG_POWER_CTL, 0x08, minclock=clock)
         if not self._try_clear_tap():
             raise self.printer.command_error("ADXL345 tap triggered before move, it may be set too sensitive.")
-        if not self._in_multi_probe:
+        if xy_homing or not self._in_multi_probe:
             self.control_fans(disable=True)
 
-    def probe_finish(self, hmove):
+    def probe_finish(self, hmove, xy_homing=False):
         chip = self.adxl345
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.dwell(ADXL345_REST_TIME)
@@ -186,7 +187,7 @@ class ADXL345Probe:
         self.deactivate_gcode.run_gcode_from_command()
         if not self._try_clear_tap():
             raise self.printer.command_error("ADXL345 tap triggered after move, it may be set too sensitive.")
-        if not self._in_multi_probe:
+        if xy_homing or not self._in_multi_probe:
             self.control_fans(disable=False)
 
     cmd_SET_ACCEL_PROBE_help = "Configure ADXL345 parameters related to probing"
