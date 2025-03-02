@@ -94,9 +94,11 @@ class ADXL345Probe:
         if self.enable_probe:
             self.printer.add_object("probe", self)
         if self.enable_x_homing:
-            self.printer.add_object("adxl_probe_x", ADXL345Endstop(self))
+            x_endstop = ADXL345Endstop(self)
+            ppins.register_chip("adxl_probe_x", x_endstop)
         if self.enable_x_homing:
-            self.printer.add_object("adxl_probe_y", ADXL345Endstop(self))
+            y_endstop = ADXL345Endstop(self)
+            ppins.register_chip("adxl_probe_y", y_endstop)
         self.printer.register_event_handler('klippy:connect', self.init_adxl)
         self.printer.register_event_handler('klippy:mcu_identify', self.handle_mcu_identify)
 
