@@ -18,7 +18,7 @@ class ADXL345Endstop:
         self.adxl345probe = adxl345probe
         self.printer = adxl345probe.printer
         self.mcu_endstop = None
-        self.stepper_enable = self.printer.load_object("stepper_enable")
+        self.stepper_enable = self.printer.load_object(config, "stepper_enable")
 
     def setup_pin(self, pin_type, pin_params):
         # Validate pin
