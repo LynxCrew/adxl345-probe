@@ -19,10 +19,10 @@ class ADXL345Endstop:
         self.printer = adxl345probe.printer
         self.mcu_endstop = None
 
-    def setup_pin(self, pin_type, pin_params, endstop_type="virtual_endstop"):
+    def setup_pin(self, pin_type, pin_params):
         # Validate pin
         ppins = self.printer.lookup_object("pins")
-        if pin_type != "endstop" or pin_params["pin"] != endstop_type:
+        if pin_type != "endstop" or pin_params["pin"] != "virtual_endstop":
             raise ppins.error("probe virtual endstop only useful as endstop")
         if pin_params["invert"] or pin_params["pullup"]:
             raise ppins.error("Can not pullup/invert tmc virtual pin")
@@ -80,6 +80,7 @@ class ADXL345Probe:
         self.mcu_endstop = mcu.setup_pin('endstop', pin_params)
         self.enable_x_homing = config.getboolean('enable_x_homing', False)
         self.enable_y_homing = config.getboolean('enable_y_homing', False)
+        self.enable_probe = config.getboolean('enable_probe', True)
         # Add wrapper methods for endstops
         self.get_mcu = self.mcu_endstop.get_mcu
         self.add_stepper = self.mcu_endstop.add_stepper
@@ -90,20 +91,14 @@ class ADXL345Probe:
         # Register commands and callbacks
         self.gcode = self.printer.lookup_object('gcode')
         self.gcode.register_mux_command("SET_ACCEL_PROBE", "CHIP", None, self.cmd_SET_ACCEL_PROBE, desc=self.cmd_SET_ACCEL_PROBE_help)
-        self.probe = probe.PrinterProbe(config, self)
-        self._setup_pin = self.probe.setup_pin
-        self.probe.setup_pin = self.setup_pin
-        self.printer.add_object("adxl_probe", self.probe)
+        if self.enable_probe:
+            self.printer.add_object("probe", self)
+        if self.enable_x_homing:
+            self.printer.add_object("adxl_probe_x", ADXL345Endstop(self))
+        if self.enable_x_homing:
+            self.printer.add_object("adxl_probe_y", ADXL345Endstop(self))
         self.printer.register_event_handler('klippy:connect', self.init_adxl)
         self.printer.register_event_handler('klippy:mcu_identify', self.handle_mcu_identify)
-
-
-    def setup_pin(self, pin_type, pin_params):
-        if self.enable_x_homing and pin_params["pin"] == "x_virtual_endstop":
-            return ADXL345Endstop(self).setup_pin(pin_type, pin_params, "x_virtual_endstop")
-        if self.enable_y_homing and pin_params["pin"] == "y_virtual_endstop":
-            return ADXL345Endstop(self).setup_pin(pin_type, pin_params, "y_virtual_endstop")
-        return self._setup_pin(pin_type, pin_params)
 
 
     def init_adxl(self):
@@ -202,6 +197,7 @@ class ADXL345Probe:
                                       above=DUR_SCALE, maxval=0.1)
         chip.set_reg(REG_THRESH_TAP, int(self.tap_thresh / TAP_SCALE))
         chip.set_reg(REG_DUR, int(self.tap_dur / DUR_SCALE))
+
 
 
 def load_config(config):
