@@ -54,6 +54,7 @@ class ADXL345Endstop:
 
 class ADXL345Probe:
     def __init__(self, config):
+        self.config = config
         self.printer = config.get_printer()
         gcode_macro = self.printer.load_object(config, 'gcode_macro')
         self.activate_gcode = gcode_macro.load_template(config, 'activate_gcode', '')
