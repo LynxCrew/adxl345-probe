@@ -18,6 +18,7 @@ class ADXL345Endstop:
         self.adxl345probe = adxl345probe
         self.printer = adxl345probe.printer
         self.mcu_endstop = None
+        self.stepper_enable = self.printer.load_object("stepper_enable")
 
     def setup_pin(self, pin_type, pin_params):
         # Validate pin
@@ -39,6 +40,9 @@ class ADXL345Endstop:
     def handle_homing_move_begin(self, hmove):
         if self.mcu_endstop not in hmove.get_mcu_endstops():
             return
+        for es in hmove.endstops:
+            self.stepper_enable.motor_debug_enable(es[1], 1)
+        self.printer.lookup_object("toolhead").dwell(self.adxl345probe.stepper_enable_dwell_time)
         self.adxl345probe.probe_prepare(hmove, xy_homing=True)
 
     def handle_homing_move_end(self, hmove):
@@ -82,6 +86,7 @@ class ADXL345Probe:
         self.enable_x_homing = config.getboolean('enable_x_homing', False)
         self.enable_y_homing = config.getboolean('enable_y_homing', False)
         self.enable_probe = config.getboolean('enable_probe', True)
+        self.stepper_enable_dwell_time = config.getfloat('stepper_enable_dwell_time', 0.1)
         # Add wrapper methods for endstops
         self.get_mcu = self.mcu_endstop.get_mcu
         self.add_stepper = self.mcu_endstop.add_stepper
