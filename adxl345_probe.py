@@ -40,8 +40,6 @@ class ADXL345Endstop:
     def handle_homing_move_begin(self, hmove):
         if self.mcu_endstop not in hmove.get_mcu_endstops():
             return
-        for es in hmove.endstops:
-            self.stepper_enable.motor_debug_enable(es[1], 1)
         self.printer.lookup_object("toolhead").dwell(self.adxl345probe.stepper_enable_dwell_time)
         self.adxl345probe.probe_prepare(hmove, xy_homing=True)
 
