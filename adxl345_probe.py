@@ -243,7 +243,8 @@ class ADXL345Probe:
         return False
 
     def probe_prepare(self, hmove, axis="z"):
-        self.init_adxl(axis)
+        if not self.is_measuring:
+            self.init_adxl(axis)
         self.activate_gcode.run_gcode_from_command()
         chip = self.adxl345
         toolhead = self.printer.lookup_object("toolhead")
@@ -280,6 +281,8 @@ class ADXL345Probe:
             )
         if axis != "z" or not self._in_multi_probe:
             self.control_fans(disable=False)
+        if not self.is_measuring:
+            self.init_adxl()
 
     cmd_SET_ACCEL_PROBE_help = "Configure ADXL345 parameters related to probing"
 
