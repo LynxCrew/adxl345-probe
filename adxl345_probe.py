@@ -1,3 +1,6 @@
+import datetime
+import os
+
 from . import probe, adxl345
 
 REG_THRESH_TAP = 0x1D
@@ -14,14 +17,16 @@ ADXL345_REST_TIME = 0.1
 
 
 class ADXL345Endstop:
-    def __init__(self, adxl345probe):
+    def __init__(self, adxl345probe, axis=None):
         self.adxl345probe = adxl345probe
         self.printer = adxl345probe.printer
+        self.axis = axis
         self.mcu_endstop = None
         self.stepper_enable = self.printer.load_object(
             self.adxl345probe.config, "stepper_enable"
         )
         self.gcode = self.printer.lookup_object("gcode")
+        self.aclient = None
 
     def setup_pin(self, pin_type, pin_params):
         # Validate pin
@@ -43,6 +48,10 @@ class ADXL345Endstop:
     def handle_homing_move_begin(self, hmove):
         if self.mcu_endstop not in hmove.get_mcu_endstops():
             return
+
+        self.adxl345probe.init_adxl(self.axis)
+        if self.adxl345probe.log_homing_data:
+            self.aclient = self.adxl345probe.adxl345.start_internal_client()
         for es in hmove.get_mcu_endstops():
             for stepper in es[0].get_steppers():
                 self.gcode.respond_info(stepper.get_name())
@@ -51,12 +60,23 @@ class ADXL345Endstop:
         self.printer.lookup_object("toolhead").dwell(
             self.adxl345probe.stepper_enable_dwell_time
         )
-        self.adxl345probe.probe_prepare(hmove, xy_homing=True)
+        self.adxl345probe.probe_prepare(hmove, axis=self.axis)
 
     def handle_homing_move_end(self, hmove):
         if self.mcu_endstop not in hmove.get_mcu_endstops():
             return
-        self.adxl345probe.probe_finish(hmove, xy_homing=True)
+
+        if self.adxl345probe.log_homing_data:
+            self.aclient.finish_measurements()
+            raw_name = self.get_filename()
+            self.aclient.write_to_file(raw_name)
+            self.gcode.respond_info("Writing homing data to %s file" % raw_name)
+        self.adxl345probe.probe_finish(hmove, axis=self.axis)
+
+    def get_filename(self):
+        name = "adxl_homing-"
+        time = datetime.datetime.now()
+        return os.path.join("/tmp", name + time.strftime("%Y-%m-%d_%H:%M:%S") + ".csv")
 
 
 class ADXL345Probe:
@@ -83,7 +103,13 @@ class ADXL345Probe:
         self.tap_thresh = config.getfloat(
             "tap_thresh", 5000, minval=TAP_SCALE, maxval=100000.0
         )
+        self.tap_thresh_x = self.tap_thresh
+        self.tap_thresh_y = self.tap_thresh
+        self.tap_thresh_z = self.tap_thresh
         self.tap_dur = config.getfloat("tap_dur", 0.01, above=DUR_SCALE, maxval=0.1)
+        self.tap_dur_x = self.tap_dur
+        self.tap_dur_y = self.tap_dur
+        self.tap_dur_z = self.tap_dur
         self.position_endstop = config.getfloat("z_offset")
         self.disable_fans = [
             fan.strip() for fan in config.get("disable_fans", "").split(",") if fan
@@ -99,6 +125,7 @@ class ADXL345Probe:
         self.enable_x_homing = config.getboolean("enable_x_homing", False)
         self.enable_y_homing = config.getboolean("enable_y_homing", False)
         self.enable_probe = config.getboolean("enable_probe", True)
+        self.log_homing_data = config.getboolean("log_homing_data", False)
         self.stepper_enable_dwell_time = config.getfloat(
             "stepper_enable_dwell_time", 0.1
         )
@@ -120,18 +147,50 @@ class ADXL345Probe:
         )
         if self.enable_probe:
             self.printer.add_object("probe", self)
+
+            self.tap_thresh_z = config.getfloat(
+                "tap_thresh_z", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
+            )
+            self.tap_dur_z = config.getfloat(
+                "tap_dur_z", self.tap_dur, above=DUR_SCALE, maxval=0.1
+            )
         if self.enable_x_homing:
-            x_endstop = ADXL345Endstop(self)
+            x_endstop = ADXL345Endstop(self, "x")
             ppins.register_chip("adxl_probe_x", x_endstop)
-        if self.enable_x_homing:
-            y_endstop = ADXL345Endstop(self)
+
+            self.tap_thresh_x = config.getfloat(
+                "tap_thresh_x", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
+            )
+            self.tap_dur_x = config.getfloat(
+                "tap_dur_x", self.tap_dur, above=DUR_SCALE, maxval=0.1
+            )
+        if self.enable_y_homing:
+            y_endstop = ADXL345Endstop(self, "y")
             ppins.register_chip("adxl_probe_y", y_endstop)
+
+            self.tap_thresh_y = config.getfloat(
+                "tap_thresh_y", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
+            )
+            self.tap_dur_y = config.getfloat(
+                "tap_dur_y", self.tap_dur, above=DUR_SCALE, maxval=0.1
+            )
         self.printer.register_event_handler("klippy:connect", self.init_adxl)
         self.printer.register_event_handler(
             "klippy:mcu_identify", self.handle_mcu_identify
         )
 
-    def init_adxl(self):
+    def init_adxl(self, axis=None):
+        tap_thresh = self.tap_thresh
+        tap_dur = self.tap_dur
+        if axis == "x":
+            tap_thresh = self.tap_thresh_x
+            tap_dur = self.tap_dur_x
+        elif axis == "y":
+            tap_thresh = self.tap_thresh_y
+            tap_dur = self.tap_dur_y
+        elif axis == "z":
+            tap_thresh = self.tap_thresh_z
+            tap_dur = self.tap_dur_z
         chip = self.adxl345
         chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
         chip.set_reg(adxl345.REG_DATA_FORMAT, 0x0B)
@@ -139,8 +198,8 @@ class ADXL345Probe:
             chip.set_reg(adxl345.REG_DATA_FORMAT, 0x2B)
         chip.set_reg(REG_INT_MAP, self.int_map)
         chip.set_reg(REG_TAP_AXES, 0x7)
-        chip.set_reg(REG_THRESH_TAP, int(self.tap_thresh / TAP_SCALE))
-        chip.set_reg(REG_DUR, int(self.tap_dur / DUR_SCALE))
+        chip.set_reg(REG_THRESH_TAP, int(tap_thresh / TAP_SCALE))
+        chip.set_reg(REG_DUR, int(tap_dur / DUR_SCALE))
 
     def handle_mcu_identify(self):
         self.phoming = self.printer.lookup_object("homing")
@@ -183,7 +242,8 @@ class ADXL345Probe:
             tries -= 1
         return False
 
-    def probe_prepare(self, hmove, xy_homing=False):
+    def probe_prepare(self, hmove, axis="z"):
+        self.init_adxl(axis)
         self.activate_gcode.run_gcode_from_command()
         chip = self.adxl345
         toolhead = self.printer.lookup_object("toolhead")
@@ -201,10 +261,10 @@ class ADXL345Probe:
             raise self.printer.command_error(
                 "ADXL345 tap triggered before move, it may be set too sensitive."
             )
-        if xy_homing or not self._in_multi_probe:
+        if axis != "z" or not self._in_multi_probe:
             self.control_fans(disable=True)
 
-    def probe_finish(self, hmove, xy_homing=False):
+    def probe_finish(self, hmove, axis="z"):
         chip = self.adxl345
         toolhead = self.printer.lookup_object("toolhead")
         toolhead.dwell(ADXL345_REST_TIME)
@@ -218,7 +278,7 @@ class ADXL345Probe:
             raise self.printer.command_error(
                 "ADXL345 tap triggered after move, it may be set too sensitive."
             )
-        if xy_homing or not self._in_multi_probe:
+        if axis != "z" or not self._in_multi_probe:
             self.control_fans(disable=False)
 
     cmd_SET_ACCEL_PROBE_help = "Configure ADXL345 parameters related to probing"

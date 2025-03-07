@@ -53,7 +53,13 @@ This configuration must be **below** your adxl345 section.
 probe_pin: <pin for either int1 or int2>
 int_pin: int1 # select either int1 or int2, depending on your choice of wiring
 tap_thresh: 12000 # this needs to be tuned
+tap_thresh_x: 12000 # tap threshold for x homing, defaults to tap_thresh
+tap_thresh_y: 12000 # tap threshold for y homing, defaults to tap_thresh
+tap_thresh_z: 12000 # tap threshold for probing, defaults to tap_thresh
 tap_dur: 0.01 # this needs to be tuned
+tap_dur_x: 0.01 # tap duration for x homing, defaults to tap_dur
+tap_dur_y: 0.01 # tap duration for y homing, defaults to tap_dur
+tap_dur_z: 0.01 # tap duration for probing, defaults to tap_dur
 speed: 20 # this needs to be tuned
 z_offset: 0
 # Adjust this to your liking
@@ -62,14 +68,36 @@ sample_retract_dist: 3.0
 samples_result: median
 samples_tolerance: 0.01
 samples_tolerance_retries: 20
+enable_x_homing: False
+#   Define whether the adxl probe should be used to home x
+enable_y_homing: False
+#   Define whether the adxl probe should be used to home y
+enable_probe: True
+#   Define whether the adxl_probe should register as a probe
+log_homing_data: False
+#   Log accelerometer data to a file
+stepper_enable_dwell_time:
+#   Time to dwell after enabling the steppers before homing
 ```
 
-If you want to use the probe as Z endstop as well:
+If you want to use the probe as endstops as well:
 
 ```
 [stepper_z]
 ... your remaining config ...
 endstop_pin: probe:z_virtual_endstop
+```
+
+```
+[stepper_x]
+... your remaining config ...
+endstop_pin: adxl_probe_x:virtual_endstop
+```
+
+```
+[stepper_y]
+... your remaining config ...
+endstop_pin: adxl_probe_y:virtual_endstop
 ```
 
 Make sure to remove `position_endstop` in this case.
