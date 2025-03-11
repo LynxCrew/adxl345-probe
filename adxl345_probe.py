@@ -53,7 +53,7 @@ class ADXL345Endstop:
         if self.adxl345probe.log_homing_data:
             self.aclient = self.adxl345probe.adxl345.start_internal_client()
         for es in hmove.get_mcu_endstops():
-            for stepper in es[0].get_steppers():
+            for stepper in es.get_steppers():
                 self.gcode.respond_info(stepper.get_name())
                 self.stepper_enable.motor_debug_enable(stepper.get_name(), True)
 
