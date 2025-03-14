@@ -4,7 +4,7 @@ set -Ee
 
 SRC_DIR="$( cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")"/ && pwd )"
 DEPENDS_ON=( klipper )
-TARGET_DIR="${HOME}/klipper/klippy/extras"
+TARGET_DIR="${HOME}/klipper/klippy/plugins"
 PKGLIST=""
 
 function run() {
