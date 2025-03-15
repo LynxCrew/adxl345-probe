@@ -37,16 +37,18 @@ class ADXL345Endstop:
             raise ppins.error("Can not pullup/invert tmc virtual pin")
         # Setup for sensorless homing
         self.printer.register_event_handler(
-            "homing:homing_move_begin", self.handle_homing_move_begin
+            "homing:homing_move_begin",
+            lambda hmove: self.handle_homing_move_begin(hmove, self.axis),
         )
         self.printer.register_event_handler(
-            "homing:homing_move_end", self.handle_homing_move_end
+            "homing:homing_move_end",
+            lambda hmove: self.handle_homing_move_end(hmove, self.axis),
         )
         self.mcu_endstop = self.adxl345probe.mcu_endstop
         return self.mcu_endstop
 
-    def handle_homing_move_begin(self, hmove):
-        if self.mcu_endstop not in hmove.get_mcu_endstops():
+    def handle_homing_move_begin(self, hmove, axis=None):
+        if self.mcu_endstop not in hmove.get_mcu_endstops() or axis != self.axis:
             return
 
         self.adxl345probe.init_adxl(self.axis)
@@ -62,8 +64,8 @@ class ADXL345Endstop:
         )
         self.adxl345probe.probe_prepare(hmove, axis=self.axis)
 
-    def handle_homing_move_end(self, hmove):
-        if self.mcu_endstop not in hmove.get_mcu_endstops():
+    def handle_homing_move_end(self, hmove, axis=None):
+        if self.mcu_endstop not in hmove.get_mcu_endstops() or axis != self.axis:
             return
 
         if self.adxl345probe.log_homing_data:
@@ -280,7 +282,7 @@ class ADXL345Probe:
             )
         if axis != "z" or not self._in_multi_probe:
             self.control_fans(disable=False)
-        self.init_adxl()
+        # self.init_adxl()
 
     cmd_SET_ACCEL_PROBE_help = "Configure ADXL345 parameters related to probing"
 
