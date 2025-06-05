@@ -51,17 +51,17 @@ class ADXL345Endstop:
         if self.mcu_endstop not in hmove.get_mcu_endstops() or axis != self.axis:
             return
 
-        self.adxl345probe.init_adxl(self.axis)
-        if self.adxl345probe.log_homing_data:
-            self.aclient = self.adxl345probe.adxl345.start_internal_client()
-        for es in hmove.get_mcu_endstops():
-            for stepper in es.get_steppers():
-                self.gcode.respond_info(stepper.get_name())
-                self.stepper_enable.motor_debug_enable(stepper.get_name(), True)
-
+        for stepper in self.adxl345probe.get_steppers(self.axis):
+            self.gcode.respond_info(stepper.get_name())
+            self.stepper_enable.motor_debug_enable(stepper.get_name(), True)
         self.printer.lookup_object("toolhead").dwell(
             self.adxl345probe.stepper_enable_dwell_time
         )
+
+        self.adxl345probe.init_adxl(self.axis)
+        if self.adxl345probe.log_homing_data:
+            self.aclient = self.adxl345probe.adxl345.start_internal_client()
+
         self.adxl345probe.probe_prepare(hmove, axis=self.axis)
 
     def handle_homing_move_end(self, hmove, axis=None):
@@ -133,8 +133,7 @@ class ADXL345Probe:
         )
         # Add wrapper methods for endstops
         self.get_mcu = self.mcu_endstop.get_mcu
-        self.add_stepper = self.mcu_endstop.add_stepper
-        self.get_steppers = self.mcu_endstop.get_steppers
+        self.steppers = {}
         self.home_start = self.mcu_endstop.home_start
         self.home_wait = self.mcu_endstop.home_wait
         self.query_endstop = self.mcu_endstop.query_endstop
@@ -283,6 +282,19 @@ class ADXL345Probe:
         if axis != "z" or not self._in_multi_probe:
             self.control_fans(disable=False)
         # self.init_adxl()
+
+    def add_stepper(self, stepper, axis=None):
+        if axis is not None:
+            if axis in self.steppers:
+                self.steppers[axis].append(stepper)
+            else:
+                self.steppers[axis] = [stepper]
+        self.mcu_endstop.add_stepper(stepper)
+
+    def get_steppers(self, axis=None):
+        if axis is not None:
+            return self.steppers[axis]
+        return self.mcu_endstop.get_steppers()
 
     cmd_SET_ACCEL_PROBE_help = "Configure ADXL345 parameters related to probing"
 
