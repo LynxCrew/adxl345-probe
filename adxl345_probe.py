@@ -147,8 +147,13 @@ class ADXL345Probe:
             desc=self.cmd_SET_ACCEL_PROBE_help,
         )
         if self.enable_probe:
+            self.cmd_helper = probe.ProbeCommandHelper(config, self, self.query_endstop)
+            self.probe_offsets = probe.ProbeOffsetsHelper(config)
+            self.param_helper = probe.ProbeParameterHelper(config)
+            self.homing_helper = probe.HomingViaProbeHelper(config, self, self.param_helper)
+            self.probe_session = probe.ProbeSessionHelper(config, self.param_helper, self.homing_helper.start_probe_session)
             self.printer.add_object("probe", self)
-
+        
             self.tap_thresh_z = config.getfloat(
                 "tap_thresh_z", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
             )
@@ -232,6 +237,18 @@ class ADXL345Probe:
 
     def get_position_endstop(self):
         return self.position_endstop
+
+    def get_probe_params(self, gcmd=None):
+        return self.param_helper.get_probe_params(gcmd)
+
+    def get_offsets(self):
+        return self.probe_offsets.get_offsets()
+
+    def get_status(self, eventtime):
+        return self.cmd_helper.get_status(eventtime)
+
+    def start_probe_session(self, gcmd):
+        return self.probe_session.start_probe_session(gcmd)
 
     def _try_clear_tap(self):
         chip = self.adxl345
