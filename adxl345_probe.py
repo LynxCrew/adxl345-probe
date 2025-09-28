@@ -51,9 +51,13 @@ class ADXL345Endstop:
         if self.mcu_endstop not in hmove.get_mcu_endstops() or axis != self.axis:
             return
 
-        for stepper in self.adxl345probe.get_steppers(self.axis):
-            self.gcode.respond_info(stepper.get_name())
-            self.stepper_enable.motor_debug_enable(stepper.get_name(), True)
+        # Commented these out - they lead to errors when using ADXL for X and Y homing.
+        # This means that motors no longer engage before beginning homing
+        # - you'll have to do that yourself in your homing g-code. Can someone fix this?
+        
+        #for stepper in self.adxl345probe.get_steppers(self.axis):
+            #self.gcode.respond_info(stepper.get_name())
+            #self.stepper_enable.motor_debug_enable(stepper.get_name(), True)
         self.printer.lookup_object("toolhead").dwell(
             self.adxl345probe.stepper_enable_dwell_time
         )
