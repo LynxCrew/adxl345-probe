@@ -44,7 +44,10 @@ class ADXL345Endstop:
             "homing:homing_move_end",
             lambda hmove: self.handle_homing_move_end(hmove, self.axis),
         )
-        self.mcu_endstop = self.adxl345probe.mcu_endstop
+        if self.axis == "x":
+            self.mcu_endstop = self.adxl345probe.mcu_endstop_x
+        elif self.axis == "y":
+            self.mcu_endstop = self.adxl345probe.mcu_endstop_y
         return self.mcu_endstop
 
     def handle_homing_move_begin(self, hmove, axis=None):
@@ -128,6 +131,8 @@ class ADXL345Probe:
         pin_params = ppins.lookup_pin(probe_pin, can_invert=True, can_pullup=True)
         mcu = pin_params["chip"]
         self.mcu_endstop = mcu.setup_pin("endstop", pin_params)
+        self.mcu_endstop_x = mcu.setup_pin("endstop", pin_params)
+        self.mcu_endstop_y = mcu.setup_pin("endstop", pin_params)
         self.enable_x_homing = config.getboolean("enable_x_homing", False)
         self.enable_y_homing = config.getboolean("enable_y_homing", False)
         self.enable_probe = config.getboolean("enable_probe", True)
@@ -157,7 +162,7 @@ class ADXL345Probe:
             self.homing_helper = probe.HomingViaProbeHelper(config, self, self.param_helper)
             self.probe_session = probe.ProbeSessionHelper(config, self.param_helper, self.homing_helper.start_probe_session)
             self.printer.add_object("probe", self)
-        
+
             self.tap_thresh_z = config.getfloat(
                 "tap_thresh_z", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
             )
@@ -216,7 +221,14 @@ class ADXL345Probe:
         kin = self.printer.lookup_object("toolhead").get_kinematics()
         for stepper in kin.get_steppers():
             if stepper.is_active_axis("z"):
-                self.add_stepper(stepper)
+                self.add_stepper(stepper, "z")
+                self.mcu_endstop.add_stepper(stepper)
+            elif stepper.is_active_axis("x"):
+                self.add_stepper(stepper, "x")
+                self.mcu_endstop_x.add_stepper(stepper)
+            elif stepper.is_active_axis("y"):
+                self.add_stepper(stepper, "y")
+                self.mcu_endstop_y.add_stepper(stepper)
 
     def control_fans(self, disable=True):
         for fan in self.disable_fans:
@@ -310,12 +322,12 @@ class ADXL345Probe:
                 self.steppers[axis].append(stepper)
             else:
                 self.steppers[axis] = [stepper]
-        self.mcu_endstop.add_stepper(stepper)
+        #self.mcu_endstop.add_stepper(stepper)
 
     def get_steppers(self, axis=None):
         if axis is not None:
             return self.steppers[axis]
-        return self.mcu_endstop.get_steppers()
+        return self.mcu_endstop.get_steppers() # This would return just the Z stepper
 
     cmd_SET_ACCEL_PROBE_help = "Configure ADXL345 parameters related to probing"
 
