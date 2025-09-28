@@ -15,6 +15,11 @@ TAP_SCALE = 0.0625 * adxl345.FREEFALL_ACCEL  # 62.5mg/LSB * Earth gravity in mm/
 
 ADXL345_REST_TIME = 0.1
 
+REG_OFSX = 0x1E
+REG_OFSY = 0x1F
+REG_OFSZ = 0x20
+REG_THRESH_ACT = 0x24
+REG_ACT_INACT_CTL  = 0x27
 
 class ADXL345Endstop:
     def __init__(self, adxl345probe, axis=None):
@@ -109,21 +114,31 @@ class ADXL345Probe:
         probe_pin = config.get("probe_pin")
         adxl345_name = config.get("chip", "adxl345")
         self.int_map = 0x40 if int_pin == "int2" else 0x0
-        self.tap_thresh = config.getfloat(
-            "tap_thresh", 5000, minval=TAP_SCALE, maxval=100000.0
-        )
-        self.tap_thresh_x = self.tap_thresh
-        self.tap_thresh_y = self.tap_thresh
-        self.tap_thresh_z = self.tap_thresh
-        self.tap_dur = config.getfloat("tap_dur", 0.01, above=DUR_SCALE, maxval=0.1)
-        self.tap_dur_x = self.tap_dur
-        self.tap_dur_y = self.tap_dur
-        self.tap_dur_z = self.tap_dur
+        
+        self.mode = config.get("mode", "tap")
+        if self.mode != "tap" and self.mode != "act":
+            raise config.error("adxl345_probe mode must be either 'tap' or 'act'. The default is tap for backwards compatibility, but we recommend act")
+        
+        if self.mode == "tap":
+            self.int_reg_value = 0x40
+            self.tap_thresh = config.getfloat(
+                "tap_thresh", 5000, minval=TAP_SCALE, maxval=100000.0
+            )
+            self.tap_thresh_x = self.tap_thresh
+            self.tap_thresh_y = self.tap_thresh
+            self.tap_thresh_z = self.tap_thresh
+            self.tap_dur = config.getfloat("tap_dur", 0.01, above=DUR_SCALE, maxval=0.1)
+            self.tap_dur_x = self.tap_dur
+            self.tap_dur_y = self.tap_dur
+            self.tap_dur_z = self.tap_dur
+        else: # "act" mode
+            self.int_reg_value = 0x10
+
         self.position_endstop = config.getfloat("z_offset")
         self.disable_fans = [
             fan.strip() for fan in config.get("disable_fans", "").split(",") if fan
         ]
-
+        
         self.adxl345 = self.printer.lookup_object(adxl345_name)
         self.next_cmd_time = self.action_end_time = 0.0
         # Create an "endstop" object to handle the sensor pin
@@ -163,58 +178,87 @@ class ADXL345Probe:
             self.probe_session = probe.ProbeSessionHelper(config, self.param_helper, self.homing_helper.start_probe_session)
             self.printer.add_object("probe", self)
 
-            self.tap_thresh_z = config.getfloat(
-                "tap_thresh_z", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
-            )
-            self.tap_dur_z = config.getfloat(
-                "tap_dur_z", self.tap_dur, above=DUR_SCALE, maxval=0.1
-            )
+            if self.mode == "tap":
+                self.tap_thresh_z = config.getfloat(
+                    "tap_thresh_z", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
+                )
+                self.tap_dur_z = config.getfloat(
+                    "tap_dur_z", self.tap_dur, above=DUR_SCALE, maxval=0.1
+                )
+            else: # "act" mode
+                self.act_thresh_z = config.getfloat(
+                    "act_thresh_z", minval=1, maxval=255
+                )
+
         if self.enable_x_homing:
             x_endstop = ADXL345Endstop(self, "x")
             ppins.register_chip("adxl_probe_x", x_endstop)
 
-            self.tap_thresh_x = config.getfloat(
-                "tap_thresh_x", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
-            )
-            self.tap_dur_x = config.getfloat(
-                "tap_dur_x", self.tap_dur, above=DUR_SCALE, maxval=0.1
-            )
+            if self.mode == "tap":
+                self.tap_thresh_x = config.getfloat(
+                    "tap_thresh_x", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
+                )
+                self.tap_dur_x = config.getfloat(
+                    "tap_dur_x", self.tap_dur, above=DUR_SCALE, maxval=0.1
+                )
+            else: # "act" mode
+                self.act_thresh_x = config.getfloat(
+                    "act_thresh_x", minval=1, maxval=255
+                )
         if self.enable_y_homing:
             y_endstop = ADXL345Endstop(self, "y")
             ppins.register_chip("adxl_probe_y", y_endstop)
 
-            self.tap_thresh_y = config.getfloat(
-                "tap_thresh_y", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
-            )
-            self.tap_dur_y = config.getfloat(
-                "tap_dur_y", self.tap_dur, above=DUR_SCALE, maxval=0.1
-            )
+            if self.mode == "tap":
+                self.tap_thresh_y = config.getfloat(
+                    "tap_thresh_y", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
+                )
+                self.tap_dur_y = config.getfloat(
+                    "tap_dur_y", self.tap_dur, above=DUR_SCALE, maxval=0.1
+                )
+            else: # "act" mode
+                self.act_thresh_y = config.getfloat(
+                    "act_thresh_y", minval=1, maxval=255
+                )
         self.printer.register_event_handler("klippy:connect", self.init_adxl)
         self.printer.register_event_handler(
             "klippy:mcu_identify", self.handle_mcu_identify
         )
 
     def init_adxl(self, axis=None):
-        tap_thresh = self.tap_thresh
-        tap_dur = self.tap_dur
-        if axis == "x":
-            tap_thresh = self.tap_thresh_x
-            tap_dur = self.tap_dur_x
-        elif axis == "y":
-            tap_thresh = self.tap_thresh_y
-            tap_dur = self.tap_dur_y
-        elif axis == "z":
-            tap_thresh = self.tap_thresh_z
-            tap_dur = self.tap_dur_z
         chip = self.adxl345
         chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
         chip.set_reg(adxl345.REG_DATA_FORMAT, 0x0B)
         if self.inverted:
             chip.set_reg(adxl345.REG_DATA_FORMAT, 0x2B)
         chip.set_reg(REG_INT_MAP, self.int_map)
-        chip.set_reg(REG_TAP_AXES, 0x7)
-        chip.set_reg(REG_THRESH_TAP, int(tap_thresh / TAP_SCALE))
-        chip.set_reg(REG_DUR, int(tap_dur / DUR_SCALE))
+        if self.mode == "tap":
+            tap_thresh = self.tap_thresh
+            tap_dur = self.tap_dur
+            if axis == "x":
+                tap_thresh = self.tap_thresh_x
+                tap_dur = self.tap_dur_x
+            elif axis == "y":
+                tap_thresh = self.tap_thresh_y
+                tap_dur = self.tap_dur_y
+            elif axis == "z":
+                tap_thresh = self.tap_thresh_z
+                tap_dur = self.tap_dur_z
+            chip.set_reg(REG_TAP_AXES, 0x7)
+            chip.set_reg(REG_DUR, int(tap_dur / DUR_SCALE))
+            chip.set_reg(REG_THRESH_TAP, int(tap_thresh / TAP_SCALE))
+        else: # "act" mode
+            if axis == "x":
+                act_thresh = self.act_thresh_x
+            elif axis == "y":
+                act_thresh = self.act_thresh_y
+            else: # z or none
+                act_thresh = self.act_thresh_z
+            chip.set_reg(REG_TAP_AXES, 0x7)
+            chip.set_reg(REG_DUR, int(0.01 / DUR_SCALE))
+            chip.set_reg(REG_THRESH_TAP, int(act_thresh))
+            chip.set_reg(REG_ACT_INACT_CTL, 0xF0)
+            chip.set_reg(REG_THRESH_ACT, int(act_thresh))
 
     def handle_mcu_identify(self):
         self.phoming = self.printer.lookup_object("homing")
@@ -266,12 +310,12 @@ class ADXL345Probe:
     def start_probe_session(self, gcmd):
         return self.probe_session.start_probe_session(gcmd)
 
-    def _try_clear_tap(self):
+    def _try_clear_int(self):
         chip = self.adxl345
         tries = 8
         while tries > 0:
             val = chip.read_reg(REG_INT_SOURCE)
-            if not (val & 0x40):
+            if not (val & self.int_reg_value): # That masks either TAP and ACT
                 return True
             tries -= 1
         return False
@@ -287,13 +331,13 @@ class ADXL345Probe:
         clock = self.adxl345.mcu.print_time_to_clock(print_time)
         chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)
         chip.read_reg(REG_INT_SOURCE)
-        chip.set_reg(REG_INT_ENABLE, 0x40, minclock=clock)
+        chip.set_reg(REG_INT_ENABLE, self.int_reg_value, minclock=clock) # Enables either TAP or ACT
         self.is_measuring = chip.read_reg(adxl345.REG_POWER_CTL) == 0x08
         if not self.is_measuring:
             chip.set_reg(adxl345.REG_POWER_CTL, 0x08, minclock=clock)
-        if not self._try_clear_tap():
+        if not self._try_clear_int():
             raise self.printer.command_error(
-                "ADXL345 tap triggered before move, it may be set too sensitive."
+                "ADXL345 triggered before move, it may be set too sensitive."
             )
         if axis != "z" or not self._in_multi_probe:
             self.control_fans(disable=True)
@@ -308,9 +352,9 @@ class ADXL345Probe:
         if not self.is_measuring:
             chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
         self.deactivate_gcode.run_gcode_from_command()
-        if not self._try_clear_tap():
+        if not self._try_clear_int():
             raise self.printer.command_error(
-                "ADXL345 tap triggered after move, it may be set too sensitive."
+                "ADXL345 triggered after move, it may be set too sensitive."
             )
         if axis != "z" or not self._in_multi_probe:
             self.control_fans(disable=False)
@@ -333,14 +377,32 @@ class ADXL345Probe:
 
     def cmd_SET_ACCEL_PROBE(self, gcmd):
         chip = self.adxl345
-        self.tap_thresh = gcmd.get_float(
-            "TAP_THRESH", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
-        )
-        self.tap_dur = gcmd.get_float(
-            "TAP_DUR", self.tap_dur, above=DUR_SCALE, maxval=0.1
-        )
-        chip.set_reg(REG_THRESH_TAP, int(self.tap_thresh / TAP_SCALE))
-        chip.set_reg(REG_DUR, int(self.tap_dur / DUR_SCALE))
+        if self.mode == "tap":
+            self.tap_thresh = gcmd.get_float(
+                "TAP_THRESH", self.tap_thresh, minval=TAP_SCALE, maxval=100000.0
+            )
+            self.tap_thresh_x = gcmd.get_float(
+                "TAP_THRESH_X", self.tap_thresh_x, minval=TAP_SCALE, maxval=100000.0
+            )
+            self.tap_thresh_y = gcmd.get_float(
+                "TAP_THRESH_Y", self.tap_thresh_y, minval=TAP_SCALE, maxval=100000.0
+            )
+            self.tap_dur = gcmd.get_float(
+                "TAP_DUR", self.tap_dur, above=DUR_SCALE, maxval=0.1
+            )
+            chip.set_reg(REG_DUR, int(self.tap_dur / DUR_SCALE))
+        
+        else: # "act" mode
+            self.act_thresh_x = gcmd.get_float(
+                "ACT_THRESH_X", self.act_thresh_x, minval=1, maxval=255
+            )
+            self.act_thresh_y = gcmd.get_float(
+                "ACT_THRESH_Y", self.act_thresh_y, minval=1, maxval=255
+            )
+            self.act_thresh_z = gcmd.get_float(
+                "ACT_THRESH_Z", self.act_thresh_z, minval=1, maxval=255
+            )
+
 
 
 def load_config(config):
