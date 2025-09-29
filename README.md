@@ -9,8 +9,8 @@ https://delta2.eu/discord
 The ADXL345 can detect a sudden "bump" using either of two modes - "TAP" and "ACT" (action). With the appropriate tuning, this can be used to implement a nozzle probe as well as X/Y on 3D printers.
 This project aims to support nozzle probing and X/Y homing through ADXL detection for printers using Klipper.
 
-You can watch this thing in action here:
-[https://www.youtube.com/shorts/_qd0kMkrVZw](https://www.youtube.com/shorts/_qd0kMkrVZw)
+New video of homing and probing on a Voron 0.1 / 0.2:
+https://www.youtube.com/watch?v=m7PLHfCfIJk
 
 Results you can expect for a properly tuned system (This was on a Voron Trident, and similar was achieved on a Voron 0):
 
