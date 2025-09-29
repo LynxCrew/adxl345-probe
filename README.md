@@ -105,42 +105,6 @@ The far better alternative is ACT mode, which detects a bump in the same way, bu
 
 The act_thresh params that this mode takes are in the raw numeric format that the ADXL works with, as you'll probably want to experiment precisely with these. 1 unit of act_thresh is "worth" 613.125 units of the older tap_thresh. Or in other words, an act_thresh of 20 would be equivalent to the original recommended tap_thresh value of 12000 mm/s2. Except now you can use an act_thresh potentially as low as 3 or even 2.
 
-## Further setup
-You will probably want to create a `[homing_override script]` for Klipper which does things like lower accelerations and maybe motor currents before homing. The following script has been created for a Voron 0.2, and is for using the ADXL to home all 3 axes including Z.
-```
-[homing_override]
-gcode:
-    SET_TMC_CURRENT STEPPER=stepper_x CURRENT=0.03 # X/Y current low so we don't damage anything if ADXL virtual endstop fails to trigger
-    SET_TMC_CURRENT STEPPER=stepper_y CURRENT=0.03
-    SET_TMC_CURRENT STEPPER=stepper_z CURRENT=0.01 # Z current very low since we're going to lower the bed before determining whether that's safe.
-    M204 S600 # Set X/Y acceleration, lowish so no false triggers during homing
-    G91 # Relative positioning
-    SET_KINEMATIC_POSITION Z=0 # Zero Z axis
-    G1 Z1 F500 # Move Z away initially, out of way of toolhead as we home X and Y
-	
-    G28 X # Home X
-    G1 X-60 F3600 # Move X away
-	
-    SET_TMC_CURRENT STEPPER=stepper_z CURRENT=0.1	# Set Z current for homing Z. A relatively low value can slightly improve accuracy.
-													   # You'd also want to set this before probing. And you can measure that accuracy with PROBE_ACCURACY.
-													   # We do this awkwardly between homing X and Y so that the Z motor has settled after its last move, and has time to readjust before homing.
-    G28 Y # Home Y
-    G1 Y-60 F3600 # Move Y away
-    G28 Z # Home Z
-    G1 Z10 F1800 # Move Z away
-
-    G90 # Absolute positioning
-
-    # Set motor current back to normal
-    SET_TMC_CURRENT STEPPER=stepper_x CURRENT={printer.configfile.settings['tmc2209 stepper_x'].run_current}
-    SET_TMC_CURRENT STEPPER=stepper_y CURRENT={printer.configfile.settings['tmc2209 stepper_y'].run_current}
-    SET_TMC_CURRENT STEPPER=stepper_z CURRENT={printer.configfile.settings['tmc2209 stepper_z'].run_current}
-	
-    M204 S{printer.configfile.settings['printer'].max_accel} # Set acceleration back to normal
-```
-
-You will also need to use a relatively low `max_z_accel` under `[printer]`, e.g. 500, to avoid false triggering during Z probing or homing.
-
 ## Tuning guide
 Try setting this up for just probing, not endstops, at first.
 Use `PROBE_ACCURACY SAMPLES=1` on the console to make the printer try one probing move. You may like to set `act_thresh_z` to something very low like 1 at first to be safe.
@@ -155,6 +119,40 @@ Next, you'll want to try higher `act_thresh_z` values, to eliminate false trigge
 And by now you'll probably also be using `PROBE_ACCURACY SAMPLES=10` or more, to get an idea of the probe's consistency. Standard deviation values under 0.002mm were consistently achievable on my Voron 0. Different `act_thresh_z` values may give slightly different accuracies. You'll also want to cut the fans (the config above should do this automatically), and there may be a slight benefit to reducing Z motor current.
 
 And then you can also tune `speed`. Too low will cause a failure to trigger, depending on your `act_thresh_z` value. Too high, and accuracy will go down as well as your printer receiving more of a knock each time. You can try different speeds and run `PROBE_ACCURACY` to see how they compare. I found 14 to be ideal - as accurate as any lower speeds and still relatively gentle - whereas higher speed quickly reduced accuracy.
+
+## Setting up homing
+In addition to the config file changes outlined above, you will probably want to create a `[homing_override]` script for Klipper which does things like lower accelerations and maybe motor currents before homing. The following script has been created for a Voron 0.2, and is for using the ADXL to home all 3 axes including Z. It should basically also work if some of these axes are not using the ADXL, so long as your Z axis homes in a "negative" direction, i.e. the endstop triggers when your nozzle and bed are close.
+```
+[homing_override]
+gcode:
+    SET_TMC_CURRENT STEPPER=stepper_x CURRENT=0.03 # X/Y current low so we don't damage anything if ADXL virtual endstop fails to trigger
+    SET_TMC_CURRENT STEPPER=stepper_y CURRENT=0.03
+    SET_TMC_CURRENT STEPPER=stepper_z CURRENT=0.01 # Z current very low since we're going to lower the bed before determining whether that's safe.
+    M204 S600 # Set X/Y acceleration, lowish so no false triggers during homing
+    G91 # Relative positioning
+    SET_KINEMATIC_POSITION Z=0 # Zero Z axis
+    G1 Z1 F500 # Move Z away initially, out of way of toolhead as we home X and Y
+    G90 # Absolute positioning
+
+    G28 X # Home X
+    G1 X60 F3600 # Move X to centre
+	
+	SET_TMC_CURRENT STEPPER=stepper_z CURRENT=0.1	# Set Z current for homing Z. A relatively low value can slightly improve accuracy.
+													# You'd also want to set this before probing. And you can measure that accuracy with PROBE_ACCURACY.
+													# We do this awkwardly between homing X and Y so that the Z motor has settled after its last move, and has time to readjust before homing.
+    G28 Y # Home Y
+    G1 Y60 F3600 # Move Y to centre
+	
+    G28 Z # Home Z
+    G1 Z10 F1800 # Move Z away
+
+    # Set motor current back to normal
+    SET_TMC_CURRENT STEPPER=stepper_x CURRENT={printer.configfile.settings['tmc2209 stepper_x'].run_current}
+    SET_TMC_CURRENT STEPPER=stepper_y CURRENT={printer.configfile.settings['tmc2209 stepper_y'].run_current}
+    SET_TMC_CURRENT STEPPER=stepper_z CURRENT={printer.configfile.settings['tmc2209 stepper_z'].run_current}
+	
+    M204 S{printer.configfile.settings['printer'].max_accel} # Set acceleration back to normal
+```
 
 ## License
 
