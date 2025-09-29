@@ -70,6 +70,7 @@ enable_y_homing: True
 enable_probe: True
 log_homing_data: False  # Log accelerometer data to a file
 stepper_enable_dwell_time: 0.1  # Time to dwell after enabling the steppers before homing
+disable_fans: heater_fan hotend_fan # Comma-separated list. Disabling the fans at least leads to better accuracy, and may be needed to avoid false triggering.
 ```
 
 If you want to use the probe as X/Y endstops as well:
@@ -138,10 +139,22 @@ gcode:
     M204 S{printer.configfile.settings['printer'].max_accel} # Set acceleration back to normal
 ```
 
-You will also need to disable fans in order to use the most sensitive settings and to improve accuracy, and will need to use a relatively low `max_z_accel` under `[printer]`, e.g. 500, to avoid false triggering during Z probing or homing.
+You will also need to use a relatively low `max_z_accel` under `[printer]`, e.g. 500, to avoid false triggering during Z probing or homing.
 
 ## Tuning guide
-Use `PROBE_ACCURACY SAMPLES=10` to get a reading of probe accuracy with your current settings.
+Try setting this up for just probing, not endstops, at first.
+Use `PROBE_ACCURACY SAMPLES=1` on the console to make the printer try one probing move. You may like to set `act_thresh_z` to something very low like 1 at first to be safe.
+
+If it falsely triggers, try raising `act_thresh_z`, or reducing `speed`, or if it falsely triggers immediately as the z move begins, try reducing `max_z_accel` under `[printer]`.
+
+Or if it fails to trigger, your nozzle and bed will probably collide, which isn't ideal in terms of strain on your machine. You could modify `position_min` under `[stepper_z]` to a smaller negative number like -0.5 (if you previously had it bigger) so that the printer won't push very far in such a case.
+Or, if it doesn't trigger and your bed and nozzle haven't made contact yet, try using a bigger negative number like -1.5 to ensure that it will move far enough. Keep in mind, if adjusting this later, that the nozzle will decelerate before it reaches this position, meaning it could be travelling at a lower `speed` than you set when the nozzle and bed collide, especially if you've reduced `max_z_accel` under `[printer]`. So after you're fairly sure that things are operating safely, a bigger negative number like -1.5 is good here - don't try to tune it as small as possible, because speed at the time of the bump, and hence the accuracy of the readings in my experience, will be inconsistent.
+
+Next, you'll want to try higher `act_thresh_z` values, to eliminate false triggering. You might find that on different days, slightly different lower thresholds work. Maybe establish the lowest `act_thresh_z` that avoids false triggering, and the highest `act_thresh_z` that avoids failure-to-trigger (if you can bear to have your nozzle and bed collide a couple times), and then settle on a value halfway inbetween. Before doing too much fine-tuning at one point on your bed, you might want to try different points or even a full bed mesh probing (which you'll need to set up), because different spots will falsely trigger, or fail to trigger, at different thresholds. For me, values between about 3 and 7 worked fairly consistently across the bed, so I settled on 5. Perhaps avoid probing at the outer couple of mm of the bed - it can be more inconsistent.
+
+And by now you'll probably also be using `PROBE_ACCURACY SAMPLES=10` or more, to get an idea of the probe's consistency. Standard deviation values under 0.002mm were consistently achievable on my Voron 0. Different `act_thresh_z` values may give slightly different accuracies. You'll also want to cut the fans (the config above should do this automatically), and there may be a slight benefit to reducing Z motor current.
+
+And then you can also tune `speed`. Too low will cause a failure to trigger, depending on your `act_thresh_z` value. Too high, and accuracy will go down as well as your printer receiving more of a knock each time. You can try different speeds and run `PROBE_ACCURACY` to see how they compare. I found 14 to be ideal - as accurate as any lower speeds and still relatively gentle - whereas higher speed quickly reduced accuracy.
 
 ## License
 
