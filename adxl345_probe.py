@@ -59,15 +59,12 @@ class ADXL345Endstop:
         if self.mcu_endstop not in hmove.get_mcu_endstops() or axis != self.axis:
             return
 
-        # Commented these out - they lead to errors when using ADXL for X and Y homing.
-        # This means that motors no longer engage before beginning homing
-        # - you'll have to do that yourself in your homing g-code. Can someone fix this?
-        
-        #for stepper in self.adxl345probe.get_steppers(self.axis):
+        for stepper in self.adxl345probe.get_steppers(self.axis):
             #self.gcode.respond_info(stepper.get_name())
-            #self.stepper_enable.motor_debug_enable(stepper.get_name(), True)
+            self.stepper_enable.set_motors_enable([stepper.get_name()], True)
+            
         self.printer.lookup_object("toolhead").dwell(
-            self.adxl345probe.stepper_enable_dwell_time
+            self.adxl345probe.stepper_enable_dwell_time # TODO: only dwell if the stepper was not already enabled.
         )
 
         self.adxl345probe.init_adxl(self.axis)
@@ -145,7 +142,7 @@ class ADXL345Probe:
         ppins = self.printer.lookup_object("pins")
         pin_params = ppins.lookup_pin(probe_pin, can_invert=True, can_pullup=True)
         mcu = pin_params["chip"]
-        self.mcu_endstop = mcu.setup_pin("endstop", pin_params)
+        self.mcu_endstop_z = mcu.setup_pin("endstop", pin_params)
         self.mcu_endstop_x = mcu.setup_pin("endstop", pin_params)
         self.mcu_endstop_y = mcu.setup_pin("endstop", pin_params)
         self.enable_x_homing = config.getboolean("enable_x_homing", False)
@@ -156,11 +153,11 @@ class ADXL345Probe:
             "stepper_enable_dwell_time", 0.1
         )
         # Add wrapper methods for endstops
-        self.get_mcu = self.mcu_endstop.get_mcu
+        self.get_mcu = self.mcu_endstop_z.get_mcu
         self.steppers = {}
-        self.home_start = self.mcu_endstop.home_start
-        self.home_wait = self.mcu_endstop.home_wait
-        self.query_endstop = self.mcu_endstop.query_endstop
+        self.home_start = self.mcu_endstop_z.home_start
+        self.home_wait = self.mcu_endstop_z.home_wait
+        self.query_endstop = self.mcu_endstop_z.query_endstop
         # Register commands and callbacks
         self.gcode = self.printer.lookup_object("gcode")
         self.gcode.register_mux_command(
@@ -264,13 +261,13 @@ class ADXL345Probe:
         self.phoming = self.printer.lookup_object("homing")
         kin = self.printer.lookup_object("toolhead").get_kinematics()
         for stepper in kin.get_steppers():
-            if stepper.is_active_axis("z"):
+            if stepper.is_active_axis("z"): # Multiple ones of these can be true, i.e. a motor might have a part in multiple axes in a core-xy or delta printer.
                 self.add_stepper(stepper, "z")
-                self.mcu_endstop.add_stepper(stepper)
-            elif stepper.is_active_axis("x"):
+                self.mcu_endstop_z.add_stepper(stepper)
+            if stepper.is_active_axis("x"):
                 self.add_stepper(stepper, "x")
                 self.mcu_endstop_x.add_stepper(stepper)
-            elif stepper.is_active_axis("y"):
+            if stepper.is_active_axis("y"):
                 self.add_stepper(stepper, "y")
                 self.mcu_endstop_y.add_stepper(stepper)
 
@@ -366,12 +363,11 @@ class ADXL345Probe:
                 self.steppers[axis].append(stepper)
             else:
                 self.steppers[axis] = [stepper]
-        #self.mcu_endstop.add_stepper(stepper)
 
     def get_steppers(self, axis=None):
         if axis is not None:
             return self.steppers[axis]
-        return self.mcu_endstop.get_steppers() # This would return just the Z stepper
+        return self.mcu_endstop_z.get_steppers() # This would return just the Z stepper
 
     cmd_SET_ACCEL_PROBE_help = "Configure ADXL345 parameters related to probing"
 

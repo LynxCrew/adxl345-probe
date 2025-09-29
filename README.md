@@ -69,7 +69,7 @@ enable_x_homing: True
 enable_y_homing: True
 enable_probe: True
 log_homing_data: False  # Log accelerometer data to a file
-stepper_enable_dwell_time: 0.1  # Time to dwell after enabling the steppers before homing (currently not working sorry)
+stepper_enable_dwell_time: 0.1  # Time to dwell after enabling the steppers before homing
 ```
 
 If you want to use the probe as endstops as well:
@@ -104,7 +104,7 @@ The far better alternative is ACT mode, which detects a bump in the same way, bu
 The act_thresh params that this mode takes are in the raw numeric format that the ADXL works with, as you'll probably want to experiment precisely with these. 1 unit of act_thresh is "worth" 613.125 units of the older tap_thresh. Or in other words, an act_thresh of 20 would be equivalent to the original recommended tap_thresh value of 12000 mm/s2. Except now you can use an act_thresh potentially as low as 3 or even 2.
 
 ## Further setup
-You will probably want to create a homing_override script for Klipper which does things like lower accelerations, including for the Z axis, before probing or homing. It will also need to engage the motors before homing to avoid a sudden jerk and false triggering, which was traditionally done with an M17 command, but Klipper doesn't support this so you can use e.g. `SET_STEPPER_ENABLE STEPPER=stepper_x ENABLE=1`
+You will probably want to create a homing_override script for Klipper which does things like lower accelerations, including for the Z axis, before probing or homing.
 
 You will also need to disable fans in order to use the most sensitive settings and to improve accuracy.
 
