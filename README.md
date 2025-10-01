@@ -92,7 +92,7 @@ And to use the ADXL for homing Z, use something like the following and make sure
 ... your remaining config ...
 endstop_pin: probe:z_virtual_endstop
 homing_positive_dir: false
-homing_speed: 14 # These should be the same as you've tuned in [adxl345_probe]
+homing_speed: 14 # This should be the same as you've tuned in [adxl345_probe]
 homing_retract_dist: 0 # Disables slower second homing - it won't help when using an ADXL, you've already tuned in the ideal speed
 ```
 
@@ -103,7 +103,7 @@ Also, TAP mode requires the specification of a "TAP_DUR", or duration of the bum
 
 The far better alternative is ACT mode, which detects a bump in the same way, but has an "AC coupled" mode to remove the effect of gravity, allowing thresholds several times lower to be used, and has no maximum bump duration to complicate things.
 
-The act_thresh params that this mode takes are in the raw numeric format that the ADXL works with, as you'll probably want to experiment precisely with these. 1 unit of act_thresh is "worth" 613.125 units of the older tap_thresh. Or in other words, an act_thresh of 20 would be equivalent to the original recommended tap_thresh value of 12000 mm/s2. Except now you can use an act_thresh potentially as low as 3 or even 2.
+The `act_thresh` params that this mode takes are in the raw numeric format that the ADXL works with, as you'll probably want to experiment precisely with these. 1 unit of `act_thresh` is "worth" 613.125 units of the older `tap_thresh`. Or in other words, an `act_thresh` of 20 would be equivalent to the original recommended `tap_thresh` value of 12000 mm/s2. Except now, at least for `act_thresh_z`, you can potentially use a value as low as 3 or even 2.
 
 ## Tuning guide
 Try setting this up for just probing, not endstops, at first. You may like to set `act_thresh_z` to something very low like 1 at first to be safe. You can use e.g. `SET_ACCEL_PROBE ACT_THRESH_Z=1` for this and further tuning so you don't have to keep restarting to reload your config file.
