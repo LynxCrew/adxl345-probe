@@ -57,7 +57,7 @@ probe_pin: <pin for either int1 or int2>
 int_pin: int1 # select either int1 or int2, depending on your choice of wiring
 act_thresh_x: 13
 act_thresh_y: 13
-act_thresh_z: 5 # These all need to be tuned
+act_thresh_z: 6 # These all need to be tuned
 speed: 14 # Tune this too. Too fast leads to inaccuracy and increased strain after collision. Too low and it won't trigger.
 z_offset: 0
 samples: 3
@@ -106,15 +106,16 @@ The far better alternative is ACT mode, which detects a bump in the same way, bu
 The act_thresh params that this mode takes are in the raw numeric format that the ADXL works with, as you'll probably want to experiment precisely with these. 1 unit of act_thresh is "worth" 613.125 units of the older tap_thresh. Or in other words, an act_thresh of 20 would be equivalent to the original recommended tap_thresh value of 12000 mm/s2. Except now you can use an act_thresh potentially as low as 3 or even 2.
 
 ## Tuning guide
-Try setting this up for just probing, not endstops, at first.
-Use `PROBE_ACCURACY SAMPLES=1` on the console to make the printer try one probing move. You may like to set `act_thresh_z` to something very low like 1 at first to be safe.
+Try setting this up for just probing, not endstops, at first. You may like to set `act_thresh_z` to something very low like 1 at first to be safe. You can use e.g. `SET_ACCEL_PROBE ACT_THRESH_Z=1` for this and further tuning so you don't have to keep restarting to reload your config file.
 
-If it falsely triggers, try raising `act_thresh_z`, or reducing `speed`, or if it falsely triggers immediately as the z move begins, try reducing `max_z_accel` under `[printer]`.
+Use `PROBE_ACCURACY SAMPLES=1` on the console to make the printer try one probing move. Perhaps avoid probing at the outer couple of mm of the bed if yours is like that on the Voron 0 and is only the exact size of the print area - in this step and later ones including when you set up your bed mesh. The vibrational nature of the bump can be more inconsistent at the very edges, or your nozzle could miss your magnetic build surface if it's not perfectly in place.
+
+If it falsely triggers, try raising `act_thresh_z`, or reducing `speed`, or if the false trigger occurs immediately as the z move begins, try reducing `max_z_accel` under `[printer]` - something like 500 or less is good.
 
 Or if it fails to trigger, your nozzle and bed will probably collide, which isn't ideal in terms of strain on your machine. You could modify `position_min` under `[stepper_z]` to a smaller negative number like -0.5 (if you previously had it bigger) so that the printer won't push very far in such a case.
-Or, if it doesn't trigger and your bed and nozzle haven't made contact yet, try using a bigger negative number like -1.5 to ensure that it will move far enough. Keep in mind, if adjusting this later, that the nozzle will decelerate before it reaches this position, meaning it could be travelling at a lower `speed` than you set when the nozzle and bed collide, especially if you've reduced `max_z_accel` under `[printer]`. So after you're fairly sure that things are operating safely, a bigger negative number like -1.5 is good here - don't try to tune it as small as possible, because speed at the time of the bump, and hence the accuracy of the readings in my experience, will be inconsistent.
+Or, if it doesn't trigger and your bed and nozzle quite haven't made contact yet, try using a bigger negative number like -1.5 to ensure that it will move far enough. Keep in mind, if adjusting this later, that the nozzle will decelerate before it reaches this position, meaning it could be travelling at a lower `speed` than you set when the nozzle and bed collide, especially if you've reduced `max_z_accel` under `[printer]`. So after you're fairly sure that things are operating safely, a bigger negative number like -1.5 is good here - don't try to tune it as small as possible, because speed at the time of the bump, and hence the accuracy of the readings in my experience, will be inconsistent.
 
-Next, you'll want to try higher `act_thresh_z` values, to eliminate false triggering. You might find that on different days, slightly different lower thresholds work. Maybe establish the lowest `act_thresh_z` that avoids false triggering, and the highest `act_thresh_z` that avoids failure-to-trigger (if you can bear to have your nozzle and bed collide a couple times), and then settle on a value halfway inbetween. Before doing too much fine-tuning at one point on your bed, you might want to try different points or even a full bed mesh probing (which you'll need to set up), because different spots will falsely trigger, or fail to trigger, at different thresholds. For me, values between about 3 and 7 worked fairly consistently across the bed, so I settled on 5. Perhaps avoid probing at the outer couple of mm of the bed - it can be more inconsistent.
+Next, you'll want to try higher `act_thresh_z` values, to eliminate false triggering. You might find that on different days, slightly different lower thresholds work. Maybe establish the lowest `act_thresh_z` that avoids false triggering, and the highest `act_thresh_z` that avoids failure-to-trigger (if you can bear to have your nozzle and bed collide a couple times), and then settle on a value halfway inbetween. Before doing too much fine-tuning at one point on your bed, you might want to try different points or even a full bed mesh probing (which you'll need to set up), because different spots will falsely trigger, or fail to trigger, at different thresholds. For me, values between about 3 and 9 worked consistently across the bed, so I settled on 6.
 
 And by now you'll probably also be using `PROBE_ACCURACY SAMPLES=10` or more, to get an idea of the probe's consistency. Standard deviation values under 0.002mm were consistently achievable on my Voron 0. Different `act_thresh_z` values may give slightly different accuracies. You'll also want to cut the fans (the config above should do this automatically), and there may be a slight benefit to reducing Z motor current.
 
