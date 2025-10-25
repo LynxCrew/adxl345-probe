@@ -13,7 +13,7 @@ REG_INT_SOURCE = 0x30
 DUR_SCALE = 0.000625  # 0.625 msec / LSB
 TAP_SCALE = 0.0625 * adxl345.FREEFALL_ACCEL  # 62.5mg/LSB * Earth gravity in mm/s**2
 
-ADXL345_REST_TIME = 0.1
+ADXL345_REST_TIME = 0 # 0.1
 
 REG_OFSX = 0x1E
 REG_OFSY = 0x1F
@@ -167,6 +167,18 @@ class ADXL345Probe:
             self.cmd_SET_ACCEL_PROBE,
             desc=self.cmd_SET_ACCEL_PROBE_help,
         )
+        self.gcode.register_mux_command(
+            "HOTEND_FAN_OFF",
+            "CHIP",
+            None,
+            self.cmd_HOTEND_FAN_OFF,
+        )
+        self.gcode.register_mux_command(
+            "HOTEND_FAN_ON",
+            "CHIP",
+            None,
+            self.cmd_HOTEND_FAN_ON,
+        )
         if self.enable_probe:
             self.cmd_helper = probe.ProbeCommandHelper(config, self, self.query_endstop)
             self.probe_offsets = probe.ProbeOffsetsHelper(config)
@@ -251,10 +263,7 @@ class ADXL345Probe:
                 act_thresh = self.act_thresh_y
             else: # z or none
                 act_thresh = self.act_thresh_z
-            chip.set_reg(REG_TAP_AXES, 0x7)
-            chip.set_reg(REG_DUR, int(0.01 / DUR_SCALE))
-            chip.set_reg(REG_THRESH_TAP, int(act_thresh))
-            chip.set_reg(REG_ACT_INACT_CTL, 0xF0)
+            chip.set_reg(REG_ACT_INACT_CTL, 0xF0) # AC mode (cancels out gravity), and enable all 3 axes.
             chip.set_reg(REG_THRESH_ACT, int(act_thresh))
 
     def handle_mcu_identify(self):
@@ -271,19 +280,24 @@ class ADXL345Probe:
                 self.add_stepper(stepper, "y")
                 self.mcu_endstop_y.add_stepper(stepper)
 
-    def control_fans(self, disable=True):
+    def control_fans(self, disable=True, delay_if_necessary=False):
         for fan in self.disable_fans:
             fan = self.printer.lookup_object(fan)
-            if disable:
+            if fan.fan_speed != 0:
                 fan._fan_speed = fan.fan_speed
-                fan.fan_speed = 0
+            if disable:
+                if fan.fan_speed != 0:
+                    fan.fan_speed = 0
+                    if delay_if_necessary:
+                        toolhead = self.printer.lookup_object("toolhead")
+                        toolhead.dwell(2.5)
             else:
                 fan.fan_speed = fan._fan_speed
                 fan._fan_speed = 0
 
     def multi_probe_begin(self):
         self._in_multi_probe = True
-        self.control_fans(disable=True)
+        self.control_fans(disable=True, delay_if_necessary=True)
 
     def multi_probe_end(self):
         self.control_fans(disable=False)
@@ -309,7 +323,7 @@ class ADXL345Probe:
 
     def _try_clear_int(self):
         chip = self.adxl345
-        tries = 8
+        tries = 24 # 8
         while tries > 0:
             val = chip.read_reg(REG_INT_SOURCE)
             if not (val & self.int_reg_value): # That masks either TAP and ACT
@@ -318,6 +332,11 @@ class ADXL345Probe:
         return False
 
     def probe_prepare(self, hmove, axis="z"):
+        
+        # We don't switch the fans off before homing X and Y. If you want to, use HOTEND_FAN_OFF in your g-code.
+        if axis=="z":
+            self.control_fans(disable=True, delay_if_necessary=(axis=="z"))
+
         self.init_adxl(axis)
         self.activate_gcode.run_gcode_from_command()
         chip = self.adxl345
@@ -336,24 +355,24 @@ class ADXL345Probe:
             raise self.printer.command_error(
                 "ADXL345 triggered before move, it may be set too sensitive."
             )
-        if axis != "z" or not self._in_multi_probe:
-            self.control_fans(disable=True)
-
+            
     def probe_finish(self, hmove, axis="z"):
         chip = self.adxl345
         toolhead = self.printer.lookup_object("toolhead")
         toolhead.dwell(ADXL345_REST_TIME)
-        print_time = toolhead.get_last_move_time()
-        clock = chip.mcu.print_time_to_clock(print_time)
-        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)
-        if not self.is_measuring:
-            chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
+        # All this stuff is not strictly necessary, and was slowing things down - keeping the nozzle on the build surface for longer than necessary.
+        #print_time = toolhead.get_last_move_time()
+        #clock = chip.mcu.print_time_to_clock(print_time)
+        #chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock) # This one slows it down a whole lot I think!
+        #if not self.is_measuring:
+        #    chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
         self.deactivate_gcode.run_gcode_from_command()
-        if not self._try_clear_int():
-            raise self.printer.command_error(
-                "ADXL345 triggered after move, it may be set too sensitive."
-            )
-        if axis != "z" or not self._in_multi_probe:
+        #if not self._try_clear_int():
+        #    raise self.printer.command_error(
+        #        "ADXL345 triggered after move, it may be set too sensitive."
+        #    )
+        
+        if axis == "z" and not self._in_multi_probe: # Fans were only automatically disabled for Z
             self.control_fans(disable=False)
         # self.init_adxl()
 
@@ -367,7 +386,7 @@ class ADXL345Probe:
     def get_steppers(self, axis=None):
         if axis is not None:
             return self.steppers[axis]
-        return self.mcu_endstop_z.get_steppers() # This would return just the Z stepper
+        return self.mcu_endstop_z.get_steppers() # This would return just the Z stepper(s)
 
     cmd_SET_ACCEL_PROBE_help = "Configure ADXL345 parameters related to probing"
 
@@ -398,6 +417,13 @@ class ADXL345Probe:
             self.act_thresh_z = gcmd.get_float(
                 "ACT_THRESH_Z", self.act_thresh_z, minval=1, maxval=255
             )
+
+    def cmd_HOTEND_FAN_OFF(self, gcmd):
+        self.control_fans(disable=True)
+
+    def cmd_HOTEND_FAN_ON(self, gcmd):
+        self.control_fans(disable=False)
+
 
 
 
