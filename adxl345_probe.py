@@ -355,15 +355,14 @@ class ADXL345Probe:
             raise self.printer.command_error(
                 "ADXL345 triggered before move, it may be set too sensitive."
             )
-            
+
     def probe_finish(self, hmove, axis="z"):
         chip = self.adxl345
         toolhead = self.printer.lookup_object("toolhead")
         toolhead.dwell(ADXL345_REST_TIME)
-        # All this stuff is not strictly necessary, and was slowing things down - keeping the nozzle on the build surface for longer than necessary.
-        #print_time = toolhead.get_last_move_time()
-        #clock = chip.mcu.print_time_to_clock(print_time)
-        #chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock) # This one slows it down a whole lot I think!
+        print_time = toolhead.get_last_move_time()
+        clock = chip.mcu.print_time_to_clock(print_time)
+        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock) # This one slows it down a whole lot I think! At one point I had it working with this line commented out...
         #if not self.is_measuring:
         #    chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
         self.deactivate_gcode.run_gcode_from_command()
