@@ -297,10 +297,13 @@ class ADXL345Probe:
 
     def multi_probe_begin(self):
         self._in_multi_probe = True
+        self._done_init_for_multi_probe_yet = False
         self.control_fans(disable=True, delay_if_necessary=True)
 
     def multi_probe_end(self):
         self.control_fans(disable=False)
+        chip = self.adxl345
+        chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
         self._in_multi_probe = False
 
     def probing_move(self, pos, speed):
@@ -330,50 +333,47 @@ class ADXL345Probe:
                 return True
             tries -= 1
         return False
-
-    def probe_prepare(self, hmove, axis="z"):
         
+    def probe_prepare(self, hmove, axis="z"):
+        chip = self.adxl345
+
         # We don't switch the fans off before homing X and Y. If you want to, use HOTEND_FAN_OFF in your g-code.
         if axis=="z":
             self.control_fans(disable=True, delay_if_necessary=(axis=="z"))
-
-        self.init_adxl(axis)
+            
+        if not self._in_multi_probe or not self._done_init_for_multi_probe_yet:
+            self.init_adxl(axis)    # We only want to do one init_adxl() per multi-probe - otherwise, it gets tripped up when other corners are cut to increase speed.
+                                    # But we can't do this in multi_probe_begin() because we don't know the axis yet there - even though surely it's always gotta be z.
+            chip.set_reg(adxl345.REG_POWER_CTL, 0x08)
+            self._done_init_for_multi_probe_yet = True
+            
         self.activate_gcode.run_gcode_from_command()
-        chip = self.adxl345
         toolhead = self.printer.lookup_object("toolhead")
         toolhead.flush_step_generation()
         toolhead.dwell(ADXL345_REST_TIME)
         print_time = toolhead.get_last_move_time()
         clock = self.adxl345.mcu.print_time_to_clock(print_time)
-        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)
+        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock) # If we could only get rid of the minclock=clock, sometimes it goes wicked-fast! But sometimes ends up "triggered prior to movement".
         chip.read_reg(REG_INT_SOURCE)
-        chip.set_reg(REG_INT_ENABLE, self.int_reg_value, minclock=clock) # Enables either TAP or ACT
-        self.is_measuring = chip.read_reg(adxl345.REG_POWER_CTL) == 0x08
-        if not self.is_measuring:
-            chip.set_reg(adxl345.REG_POWER_CTL, 0x08, minclock=clock)
+        chip.set_reg(REG_INT_ENABLE, self.int_reg_value) # Enables either TAP or ACT
         if not self._try_clear_int():
             raise self.printer.command_error(
                 "ADXL345 triggered before move, it may be set too sensitive."
             )
-
-    def probe_finish(self, hmove, axis="z"):
+            
+    def probe_finish(self, hmove, axis="z"): # We want this function to run and finish as quickly as possible, so the probe can be pulled up away from the bed.
         chip = self.adxl345
         toolhead = self.printer.lookup_object("toolhead")
-        toolhead.dwell(ADXL345_REST_TIME)
-        print_time = toolhead.get_last_move_time()
-        clock = chip.mcu.print_time_to_clock(print_time)
-        chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock) # This one slows it down a whole lot I think! At one point I had it working with this line commented out...
-        #if not self.is_measuring:
-        #    chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
+        #toolhead.dwell(ADXL345_REST_TIME)
+        #print_time = toolhead.get_last_move_time()
+        #clock = chip.mcu.print_time_to_clock(print_time)
+        #chip.set_reg(REG_INT_ENABLE, 0x00, minclock=clock) # This one slows it down a whole lot! We can leave this out so long as we only call init_adxl() once per multi-probe.
         self.deactivate_gcode.run_gcode_from_command()
-        #if not self._try_clear_int():
-        #    raise self.printer.command_error(
-        #        "ADXL345 triggered after move, it may be set too sensitive."
-        #    )
-        
-        if axis == "z" and not self._in_multi_probe: # Fans were only automatically disabled for Z
-            self.control_fans(disable=False)
-        # self.init_adxl()
+
+        if not self._in_multi_probe:
+            chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
+            if axis == "z": # Fans were only automatically disabled for Z
+                self.control_fans(disable=False)
 
     def add_stepper(self, stepper, axis=None):
         if axis is not None:
