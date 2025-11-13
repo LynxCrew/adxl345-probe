@@ -1,5 +1,6 @@
 import datetime
 import os
+import math
 
 from . import probe, adxl345
 
@@ -178,6 +179,12 @@ class ADXL345Probe:
             "CHIP",
             None,
             self.cmd_HOTEND_FAN_ON,
+        )
+        self.gcode.register_mux_command(
+            "ACCELEROMETER_NOISE",
+            "CHIP",
+            None,
+            self.cmd_ACCELEROMETER_NOISE,
         )
         if self.enable_probe:
             self.cmd_helper = probe.ProbeCommandHelper(config, self, self.query_endstop)
@@ -423,7 +430,38 @@ class ADXL345Probe:
     def cmd_HOTEND_FAN_ON(self, gcmd):
         self.control_fans(disable=False)
 
+    def cmd_ACCELEROMETER_NOISE(self, gcmd):
+        self.control_fans(disable=True, delay_if_necessary=True)
+        chip = self.adxl345
+        # Sorry, I don't really know what I'm doing here - this could surely be done much faster.
+        the_sum = 0
+        num_samples = 20
+        samples = []
+        for x in range(0, num_samples):
+            aclient = chip.start_internal_client()
+            self.printer.lookup_object('toolhead').dwell(0.1) # I had it at 0.05 but it failed a couple times...
+            aclient.finish_measurements()
+            values = aclient.get_samples()
+            if not values:
+                self.control_fans(disable=False)
+                raise gcmd.error("No accelerometer measurements found")
+            _, accel_x, accel_y, accel_z = values[-1]
+            the_sum += accel_z
+            samples.append(accel_z)
+            #gcmd.respond_info("value: %.6f" % (accel_z))
 
+        average = the_sum / num_samples
+        squared_number_sum = 0
+        for sample in samples:
+            difference = sample - average
+            squared_number_sum += difference * difference
+            
+        variance = squared_number_sum / (num_samples - 1)
+        sd = math.sqrt(variance)
+        gcmd.respond_info("sd: %.6f"
+                          % (sd))
+
+        self.control_fans(disable=False)
 
 
 def load_config(config):
