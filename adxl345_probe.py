@@ -47,6 +47,9 @@ class ADXL345Endstop:
         self.mcu_endstop = self.adxl345probe.mcu_endstop
         return self.mcu_endstop
 
+    def add_stepper(self, stepper):
+        self.adxl345probe.add_stepper(stepper, self.axis)
+
     def handle_homing_move_begin(self, hmove, axis=None):
         if self.mcu_endstop not in hmove.get_mcu_endstops() or axis != self.axis:
             return
