@@ -23,10 +23,8 @@ I also measured the force on the bed using a standard kitchen scale, this was ap
 ## Installation
 
 ```bash
-cd $HOME
-git clone https://github.com/LynxCrew/adxl345-probe
-cd adxl345-probe
-./scripts/install.sh
+cd ~
+wget -O - https://raw.githubusercontent.com/LynxCrew/adxl345-probe/main/install.sh | bash
 ```
 
 ## Physical setup
@@ -56,6 +54,10 @@ tap_thresh: 12000 # this needs to be tuned
 tap_thresh_x: 12000 # tap threshold for x homing, defaults to tap_thresh
 tap_thresh_y: 12000 # tap threshold for y homing, defaults to tap_thresh
 tap_thresh_z: 12000 # tap threshold for probing, defaults to tap_thresh
+untrigger_thresh: 12000 # needed for beacon, needs to be tuned
+untrigger_thresh_x: 12000 # untrigger threshold for x homing, defaults to untrigger_thresh
+untrigger_thresh_y: 12000 # untrigger threshold for y homing, defaults to untrigger_thresh
+untrigger_thresh_z: 12000 # untrigger threshold for z homing, defaults to untrigger_thresh
 tap_dur: 0.01 # this needs to be tuned
 tap_dur_x: 0.01 # tap duration for x homing, defaults to tap_dur
 tap_dur_y: 0.01 # tap duration for y homing, defaults to tap_dur
@@ -78,6 +80,24 @@ log_homing_data: False
 #   Log accelerometer data to a file
 stepper_enable_dwell_time:
 #   Time to dwell after enabling the steppers before homing
+#disable_fans:
+#   Fans to be disabled while homing or probing
+#activate_gcode:
+#   Gcode to run before homing/probing
+#activate_gcode_x:
+#   Same as above but specific to homing x, defaults to activate_gcode
+#activate_gcode_y:
+#   Same as above but specific to homing y, defaults to activate_gcode
+#activate_gcode_z:
+#   Same as above but specific to homing/probing z, defaults to activate_gcode
+#deactivate_gcode:
+#   Gcode to run after homing/probing
+#deactivate_gcode_x:
+#   Same as above but specific to homing x, defaults to activate_gcode
+#deactivate_gcode_y:
+#   Same as above but specific to homing y, defaults to activate_gcode
+#deactivate_gcode_z:
+#   Same as above but specific to homing/probing z, defaults to activate_gcode
 ```
 
 If you want to use the probe as endstops as well:
@@ -87,20 +107,20 @@ If you want to use the probe as endstops as well:
 ... your remaining config ...
 endstop_pin: probe:z_virtual_endstop
 ```
+Make sure to remove `position_endstop` in this case.
+
 
 ```
 [stepper_x]
 ... your remaining config ...
-endstop_pin: adxl_probe_x:virtual_endstop
+endstop_pin: accelerometer_endstop_x:virtual_endstop
 ```
 
 ```
 [stepper_y]
 ... your remaining config ...
-endstop_pin: adxl_probe_y:virtual_endstop
+endstop_pin: accelerometer_endstop_y:virtual_endstop
 ```
-
-Make sure to remove `position_endstop` in this case.
 
 ## Tuning guide
 

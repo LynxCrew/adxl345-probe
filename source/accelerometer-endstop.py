@@ -30,9 +30,9 @@ class AccelerometerEndstopWrapper:
             minval=TAP_SCALE,
             maxval=100000.0,
         )
-        self.untap_thresh = self.accelerometer_endstop.config.getfloat(
-            f"untap_thresh_{axis}",
-            self.accelerometer_endstop.default_untap_thresh,
+        self.untrigger_threshold = self.accelerometer_endstop.config.getfloat(
+            f"untrigger_threshold_{axis}",
+            self.accelerometer_endstop.default_untrigger_threshold,
             minval=TAP_SCALE,
             maxval=100000.0,
         )
@@ -47,6 +47,16 @@ class AccelerometerEndstopWrapper:
             self.accelerometer_endstop.default_stepper_enable_dwell_time,
             minval=0.0,
         )
+        self.activate_gcode = self.accelerometer_endstop.default_activate_gcode
+        if config.get(f"activate_gcode_{self.axis}", None) is not None:
+            self.activate_gcode = gcode_macro.load_template(
+                config, f"activate_gcode_{self.axis}", ""
+            )
+        self.deactivate_gcode = self.accelerometer_endstop.default_deactivate_gcode
+        if config.get(f"deactivate_gcode_{self.axis}", None) is not None:
+            self.deactivate_gcode = gcode_macro.load_template(
+                config, f"deactivate_gcode_{self.axis}", ""
+            )
 
     def setup_pin(self, pin_type, pin_params):
         # Validate pin
@@ -105,8 +115,10 @@ class AccelerometerEndstop:
         gcode_macro = self.printer.load_object(config, "gcode_macro")
         self.phoming = self.printer.load_object(config, "homing")
         self.stepper_enable = self.printer.load_object(self.config, "stepper_enable")
-        self.activate_gcode = gcode_macro.load_template(config, "activate_gcode", "")
-        self.deactivate_gcode = gcode_macro.load_template(
+        self.default_activate_gcode = gcode_macro.load_template(
+            config, "activate_gcode", ""
+        )
+        self.default_deactivate_gcode = gcode_macro.load_template(
             config, "deactivate_gcode", ""
         )
         accelerometer_name = config.get("chip", "adxl345")
@@ -116,8 +128,11 @@ class AccelerometerEndstop:
         self.default_tap_thresh = config.getfloat(
             "tap_thresh", 5000, minval=TAP_SCALE, maxval=100000.0
         )
-        self.default_untap_thresh = config.getfloat(
-            "untap_thresh", self.default_tap_thresh, minval=TAP_SCALE, maxval=100000.0
+        self.default_untrigger_threshold = config.getfloat(
+            "untrigger_threshold",
+            self.default_tap_thresh,
+            minval=TAP_SCALE,
+            maxval=100000.0,
         )
         self.default_tap_dur = config.getfloat(
             "tap_dur", 0.01, above=DUR_SCALE, maxval=0.1
@@ -177,9 +192,9 @@ class AccelerometerEndstop:
                 minval=TAP_SCALE,
                 maxval=100000.0,
             )
-            self.untap_thresh = config.getfloat(
-                "untap_thresh_z",
-                self.default_untap_thresh,
+            self.untrigger_threshold = config.getfloat(
+                "untrigger_threshold_z",
+                self.default_untrigger_threshold,
                 minval=TAP_SCALE,
                 maxval=100000.0,
             )
@@ -191,6 +206,17 @@ class AccelerometerEndstop:
                 self.default_stepper_enable_dwell_time,
                 minval=0.0,
             )
+            self.activate_gcode = self.default_activate_gcode
+            if config.get("activate_gcode_z", None) is not None:
+                self.activate_gcode = gcode_macro.load_template(
+                    config, "activate_gcode_z", ""
+                )
+            self.deactivate_gcode = self.default_deactivate_gcode
+            if config.get("deactivate_gcode_z", None) is not None:
+                self.deactivate_gcode = gcode_macro.load_template(
+                    config, "deactivate_gcode_z", ""
+                )
+
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
         self.printer.register_event_handler(
             "klippy:mcu_identify", self.handle_mcu_identify
@@ -323,7 +349,9 @@ class ADXL345Endstop:
 
     def probe_prepare(self, hmove, axis="z"):
         self.init_accelerometer(axis)
-        self.accelerometer_endstop.activate_gcode.run_gcode_from_command()
+        self.accelerometer_endstop.registered_endstops[
+            axis
+        ].activate_gcode.run_gcode_from_command()
         toolhead = self.printer.lookup_object("toolhead")
         toolhead.flush_step_generation()
         toolhead.dwell(ADXL345_REST_TIME)
@@ -340,7 +368,7 @@ class ADXL345Endstop:
                 "ADXL345 tap triggered before move, it may be set too sensitive."
             )
         if axis != "z" or not self.accelerometer_endstop._in_multi_probe:
-            self.control_fans(disable=True)
+            self.accelerometer_endstop.control_fans(disable=True)
 
     def probe_finish(self, hmove, axis="z"):
         toolhead = self.printer.lookup_object("toolhead")
@@ -350,13 +378,15 @@ class ADXL345Endstop:
         self.adxl345.set_reg(REG_INT_ENABLE, 0x00, minclock=clock)
         if not self.is_measuring:
             self.adxl345.set_reg(adxl345.REG_POWER_CTL, 0x00)
-        self.accelerometer_endstop.deactivate_gcode.run_gcode_from_command()
+        self.accelerometer_endstop.registered_endstops[
+            axis
+        ].deactivate_gcode.run_gcode_from_command()
         if not self.try_clear_tap():
             raise self.printer.command_error(
                 "ADXL345 tap triggered after move, it may be set too sensitive."
             )
         if axis != "z" or not self.accelerometer_endstop._in_multi_probe:
-            self.control_fans(disable=False)
+            self.accelerometer_endstop.control_fans(disable=False)
         # self.init_adxl()
 
     cmd_SET_ACCEL_ENDSTOP_help = "Configure ADXL345 parameters related to probing"
@@ -430,33 +460,38 @@ class BeaconEndstop:
 
     def init_accelerometer(self, axis=None):
         tap_thresh = self.accelerometer_endstop.default_tap_thresh
-        untap_thresh = self.accelerometer_endstop.default_untap_thresh
+        untrigger_threshold = self.accelerometer_endstop.default_untrigger_threshold
         tap_dur = self.accelerometer_endstop.default_tap_dur
         if axis is not None:
             tap_thresh = self.accelerometer_endstop.registered_endstops[axis].tap_thresh
-            untap_thresh = self.accelerometer_endstop.registered_endstops[
+            untrigger_threshold = self.accelerometer_endstop.registered_endstops[
                 axis
-            ].untap_thresh
+            ].untrigger_threshold
             tap_dur = self.accelerometer_endstop.registered_endstops[axis].tap_dur
         if self.beacon_accel_set_threshhold is not None:
-            self.beacon_accel_set_threshhold.send(tap_thresh, untap_thresh, tap_dur)
+            self.beacon_accel_set_threshhold.send(
+                tap_thresh, untrigger_threshold, tap_dur
+            )
 
     def probe_prepare(self, hmove, axis="z"):
         self.init_accelerometer(axis)
-        self.accelerometer_endstop.activate_gcode.run_gcode_from_command()
+        self.accelerometer_endstop.registered_endstops[
+            axis
+        ].activate_gcode.run_gcode_from_command()
         toolhead = self.printer.lookup_object("toolhead")
         toolhead.flush_step_generation()
         toolhead.dwell(ADXL345_REST_TIME)
         if axis != "z" or not self.accelerometer_endstop._in_multi_probe:
-            self.control_fans(disable=True)
+            self.accelerometer_endstop.control_fans(disable=True)
 
     def probe_finish(self, hmove, axis="z"):
-        chip = self.adxl345
         toolhead = self.printer.lookup_object("toolhead")
         toolhead.dwell(ADXL345_REST_TIME)
-        self.accelerometer_endstop.deactivate_gcode.run_gcode_from_command()
+        self.accelerometer_endstop.registered_endstops[
+            axis
+        ].deactivate_gcode.run_gcode_from_command()
         if axis != "z" or not self.accelerometer_endstop._in_multi_probe:
-            self.control_fans(disable=False)
+            self.accelerometer_endstop.control_fans(disable=False)
 
     def home_start(
         self, print_time, sample_time, sample_count, rest_time, triggered=True
