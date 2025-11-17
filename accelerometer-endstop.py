@@ -137,10 +137,9 @@ class AccelerometerEndstop:
 
         self.enable_x_homing = config.getboolean("enable_x_homing", False)
         self.enable_y_homing = config.getboolean("enable_y_homing", False)
+        self.enable_probe = False
         if "beacon" not in accelerometer_name:
             self.enable_probe = config.getboolean("enable_probe", True)
-        else:
-            self.enable_probe = False
         self.log_homing_data = config.getboolean("log_homing_data", False)
         # Add wrapper methods for endstops
         self.mcu_endstop = self.accelerometer.enstop
