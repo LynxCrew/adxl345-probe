@@ -45,6 +45,7 @@ class AccelerometerEndstopWrapper:
         self.stepper_enable_dwell_time = config.getfloat(
             f"stepper_enable_dwell_time_{axis}",
             self.accelerometer_endstop.default_stepper_enable_dwell_time,
+            minval=0.0
         )
 
     def setup_pin(self, pin_type, pin_params):
@@ -122,7 +123,7 @@ class AccelerometerEndstop:
             "tap_dur", 0.01, above=DUR_SCALE, maxval=0.1
         )
         self.default_stepper_enable_dwell_time = config.getfloat(
-            "stepper_enable_dwell_time", 0.1
+            "stepper_enable_dwell_time", 0.1, minval=0.0
         )
         self.disable_fans = [
             fan.strip() for fan in config.get("disable_fans", "").split(",") if fan
@@ -186,7 +187,7 @@ class AccelerometerEndstop:
                 "tap_dur_z", self.default_tap_dur, above=DUR_SCALE, maxval=0.1
             )
             self.stepper_enable_dwell_time = config.getfloat(
-                "stepper_enable_dwell_time_z", self.default_stepper_enable_dwell_time
+                "stepper_enable_dwell_time_z", self.default_stepper_enable_dwell_time, minval=0.0
             )
         self.printer.register_event_handler("klippy:connect", self.handle_connect)
         self.printer.register_event_handler(
