@@ -20,12 +20,9 @@ class AccelerometerEndstopWrapper:
     def __init__(self, accelerometer_endstop, axis=None):
         self.accelerometer_endstop = accelerometer_endstop
         self.printer = accelerometer_endstop.printer
+        self.gcode = accelerometer_endstop.gcode
         self.axis = axis
         self.mcu_endstop = None
-        self.stepper_enable = self.printer.load_object(
-            self.accelerometer_endstop.config, "stepper_enable"
-        )
-        self.gcode = self.printer.lookup_object("gcode")
         self.aclient = None
 
     def setup_pin(self, pin_type, pin_params):
@@ -47,23 +44,15 @@ class AccelerometerEndstopWrapper:
         self.mcu_endstop = self.accelerometer_endstop.mcu_endstop
         return self.mcu_endstop
 
-    def add_stepper(self, stepper):
-        self.accelerometer_endstop.add_stepper(stepper, self.axis)
-
     def handle_homing_move_begin(self, hmove, axis=None):
         if self.mcu_endstop not in hmove.get_mcu_endstops() or axis != self.axis:
             return
 
-        for stepper in self.accelerometer_endstop.get_steppers(self.axis):
-            self.gcode.respond_info(stepper.get_name())
-            self.stepper_enable.motor_debug_enable(stepper.get_name(), True)
-        self.printer.lookup_object("toolhead").dwell(
-            self.accelerometer_endstop.stepper_enable_dwell_time
-        )
-
-        self.accelerometer_endstop.init_accelerometer(self.axis)
+        self.accelerometer_endstop.accelerometer.init_accelerometer(self.axis)
         if self.accelerometer_endstop.log_homing_data:
-            self.aclient = self.accelerometer_endstop.adxl345.start_internal_client()
+            self.aclient = (
+                self.accelerometer_endstop.accelerometer.adxl345.start_internal_client()
+            )
 
         self.accelerometer_endstop.probe_prepare(hmove, axis=self.axis)
 
@@ -88,7 +77,11 @@ class AccelerometerEndstop:
     def __init__(self, config):
         self.config = config
         self.printer = config.get_printer()
+        self.toolhead = None
+        self.gcode = self.printer.lookup_object("gcode")
         gcode_macro = self.printer.load_object(config, "gcode_macro")
+        self.phoming = self.printer.load_object(config, "homing")
+        self.stepper_enable = self.printer.load_object(self.config, "stepper_enable")
         self.activate_gcode = gcode_macro.load_template(config, "activate_gcode", "")
         self.deactivate_gcode = gcode_macro.load_template(
             config, "deactivate_gcode", ""
@@ -112,7 +105,11 @@ class AccelerometerEndstop:
             fan.strip() for fan in config.get("disable_fans", "").split(",") if fan
         ]
 
-        self.accelerometer = BeaconEndstop(self.config) if 'beacon' in adxl345_name else ADXL345Endstop(self.config, self.printer, accelerometer_name)
+        self.accelerometer = (
+            BeaconEndstop(self.config)
+            if "beacon" in accelerometer_name
+            else ADXL345Endstop(self.config, self.printer, accelerometer_name)
+        )
         self.next_cmd_time = self.action_end_time = 0.0
 
         self.enable_x_homing = config.getboolean("enable_x_homing", False)
@@ -124,10 +121,15 @@ class AccelerometerEndstop:
         )
         # Add wrapper methods for endstops
         self.get_mcu = self.mcu_endstop.get_mcu
-        self.steppers = {}
+        self.add_stepper = self.mcu_endstop.add_stepper
+        self.get_steppers = self.mcu_endstop.get_steppers
+        self.probing_move = self.phoming.probing_move
+        self.probe_prepare = self.accelerometer.probe_prepare
+        self.probe_finish = self.accelerometer.probe_finish
         self.home_start = self.mcu_endstop.home_start
         self.home_wait = self.mcu_endstop.home_wait
         self.query_endstop = self.mcu_endstop.query_endstop
+        self.axes = []
         # Register commands and callbacks
         if self.enable_probe:
             self.printer.add_object("probe", self)
@@ -140,6 +142,7 @@ class AccelerometerEndstop:
             self.tap_dur_z = config.getfloat(
                 "tap_dur_z", self.tap_dur, above=DUR_SCALE, maxval=0.1
             )
+            self.axes.append("z")
         if self.enable_x_homing:
             x_endstop = AccelerometerEndstopWrapper(self, "x")
             ppins.register_chip("accelerometer_endstop_x", x_endstop)
@@ -150,6 +153,7 @@ class AccelerometerEndstop:
             self.tap_dur_x = config.getfloat(
                 "tap_dur_x", self.tap_dur, above=DUR_SCALE, maxval=0.1
             )
+            self.axes.append("x")
         if self.enable_y_homing:
             y_endstop = AccelerometerEndstopWrapper(self, "y")
             ppins.register_chip("accelerometer_endstop_y", y_endstop)
@@ -160,16 +164,23 @@ class AccelerometerEndstop:
             self.tap_dur_y = config.getfloat(
                 "tap_dur_y", self.tap_dur, above=DUR_SCALE, maxval=0.1
             )
-        self.printer.register_event_handler("klippy:connect", self.init_accelerometer)
+            self.axes.append("y")
+        self.printer.register_event_handler("klippy:connect", self.handle_connect)
         self.printer.register_event_handler(
             "klippy:mcu_identify", self.handle_mcu_identify
         )
+        self.printer.register_event_handler(
+            "homing:home_rails_begin", self.handle_homing_rails_begin
+        )
+        self.printer.register_event_handler(
+            "homing:home_rails_end", self.handle_homing_rails_end
+        )
 
-    def init_accelerometer(self, axis=None):
-        self.accelerometer.init_accelerometer(axis)
+    def handle_connect(self):
+        self.toolhead = self.printer.lookup_object("toolhead")
+        self.accelerometer.init_accelerometer()
 
     def handle_mcu_identify(self):
-        self.phoming = self.printer.lookup_object("homing")
         kin = self.printer.lookup_object("toolhead").get_kinematics()
         for stepper in kin.get_steppers():
             if stepper.is_active_axis("z"):
@@ -193,33 +204,30 @@ class AccelerometerEndstop:
         self.control_fans(disable=False)
         self._in_multi_probe = False
 
-    def probing_move(self, pos, speed):
-        return self.phoming.probing_move(self, pos, speed)
-
     def get_position_endstop(self):
         return self.position_endstop
 
-    def add_stepper(self, stepper, axis=None):
-        if axis is not None:
-            if axis in self.steppers:
-                self.steppers[axis].append(stepper)
-            else:
-                self.steppers[axis] = [stepper]
-        self.mcu_endstop.add_stepper(stepper)
-
-    def get_steppers(self, axis=None):
-        if axis is not None:
-            return self.steppers[axis]
-        return self.mcu_endstop.get_steppers()
-
     def _try_clear_tap(self):
-        self.accelerometer._try_clear_tap()
+        self.accelerometer.try_clear_tap()
 
-    def probe_prepare(self, hmove, axis="z"):
-        self.accelerometer.probe_prepare(hmove, axis)
+    def handle_homing_rails_begin(self, homing, rails):
+        homing_axes = [rail.get_name(short=True) for rail in rails]
+        affected_rails = set()
+        for axis_name in homing_axes:
+            if axis_name in self.axes:
+                partial_rails = self.toolhead.get_active_rails_for_axis(axis_name)
+                affected_rails = affected_rails | set(partial_rails)
 
-    def probe_finish(self, hmove, axis="z"):
-        self.accelerometer.probe_finish(hmove, axis)
+        for rail in affected_rails:
+            for stepper in rail.get_steppers():
+                self.gcode.respond_info(stepper.get_name())
+                self.stepper_enable.motor_debug_enable(stepper.get_name(), True)
+
+        self.toolhead.dwell(self.stepper_enable_dwell_time)
+
+    def handle_homing_rails_end(self, homing, rails):
+        pass
+
 
 class ADXL345Endstop:
     def __init__(self, config, printer, accelerometer_name):
@@ -272,7 +280,7 @@ class ADXL345Endstop:
         chip.set_reg(REG_THRESH_TAP, int(tap_thresh / TAP_SCALE))
         chip.set_reg(REG_DUR, int(tap_dur / DUR_SCALE))
 
-    def _try_clear_tap(self):
+    def try_clear_tap(self):
         chip = self.adxl345
         tries = 8
         while tries > 0:
@@ -297,7 +305,7 @@ class ADXL345Endstop:
         self.is_measuring = chip.read_reg(adxl345.REG_POWER_CTL) == 0x08
         if not self.is_measuring:
             chip.set_reg(adxl345.REG_POWER_CTL, 0x08, minclock=clock)
-        if not self._try_clear_tap():
+        if not self.try_clear_tap():
             raise self.printer.command_error(
                 "ADXL345 tap triggered before move, it may be set too sensitive."
             )
@@ -314,7 +322,7 @@ class ADXL345Endstop:
         if not self.is_measuring:
             chip.set_reg(adxl345.REG_POWER_CTL, 0x00)
         self.deactivate_gcode.run_gcode_from_command()
-        if not self._try_clear_tap():
+        if not self.try_clear_tap():
             raise self.printer.command_error(
                 "ADXL345 tap triggered after move, it may be set too sensitive."
             )
@@ -334,6 +342,7 @@ class ADXL345Endstop:
         )
         chip.set_reg(REG_THRESH_TAP, int(self.tap_thresh / TAP_SCALE))
         chip.set_reg(REG_DUR, int(self.tap_dur / DUR_SCALE))
+
 
 class BeaconEndstop:
     def __init__(self, config):
