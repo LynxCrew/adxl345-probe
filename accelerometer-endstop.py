@@ -231,9 +231,6 @@ class AccelerometerEndstop:
     def get_position_endstop(self):
         return self.position_endstop
 
-    def _try_clear_tap(self):
-        self.accelerometer.try_clear_tap()
-
     def handle_homing_rails_begin(self, homing, rails):
         dwell_time = 0.0
         homing_axes = [rail.get_name(short=True) for rail in rails]
