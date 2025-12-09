@@ -286,21 +286,33 @@ class ADXL345Probe:
             if stepper.is_active_axis("y"):
                 self.add_stepper(stepper, "y")
                 self.mcu_endstop_y.add_stepper(stepper)
+                
+    def possibly_wait_for_fan_to_stop(self, delay_if_necessary):
+        if delay_if_necessary:
+            toolhead = self.printer.lookup_object("toolhead")
+            toolhead.dwell(2.5)
 
     def control_fans(self, disable=True, delay_if_necessary=False):
+        self.printer.lookup_object("gcode").respond_info("control fans")
         for fan in self.disable_fans:
             fan = self.printer.lookup_object(fan)
-            if fan.fan_speed != 0:
-                fan._fan_speed = fan.fan_speed
-            if disable:
+            if hasattr(fan, "fan_speed"): # For heater_fans
                 if fan.fan_speed != 0:
-                    fan.fan_speed = 0
-                    if delay_if_necessary:
-                        toolhead = self.printer.lookup_object("toolhead")
-                        toolhead.dwell(2.5)
-            else:
-                fan.fan_speed = fan._fan_speed
-                fan._fan_speed = 0
+                    fan._fan_speed = fan.fan_speed
+                if disable:
+                    if fan.fan_speed != 0: # Unfortunately, even if the fan isn't moving, i.e. the heater is off, this will still read as 1.0. It's only if we've already set it to 0 here previously that we can avoid adding the delay.
+                        fan.fan_speed = 0
+                        self.possibly_wait_for_fan_to_stop(delay_if_necessary)
+                else:
+                    fan.fan_speed = fan._fan_speed
+            elif hasattr(fan, "target_temp"): # For temperature_fans
+                if disable:
+                    if (fan.target_temp != fan.max_temp):
+                        fan._target_temp = fan.target_temp
+                        fan.target_temp = fan.max_temp
+                        self.possibly_wait_for_fan_to_stop(delay_if_necessary)
+                else:
+                    fan.target_temp = fan._target_temp
 
     def multi_probe_begin(self):
         self._in_multi_probe = True
