@@ -124,7 +124,13 @@ endstop_pin: accelerometer_endstop_y:virtual_endstop
 
 ## Tuning guide
 
-In progress...
+ADXL homing is sensible to the starting conditions: to ensure reliable homing make sure the steppers are enabled *before* starting the homing procedure.
+
+Lower homing accelerations (<500mm/s) are suggested to prevent early triggers at the start of the homing move.
+
+The first parameter to tune is the `tap_treshold`, remembering that *lower* values result in a *higher* sensitivity.
+
+Tap duration tuning still in progress...
 
 ## License
 
