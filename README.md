@@ -43,6 +43,7 @@ For a ADXL345 breakout board, simply run a wire. If you're using a CAN toolboard
 | Mellow Fly SHT36 v2 | ✓ | int1 | PA10 | https://aliexpress.com/item/1005004675264551.html |
 | Huvud | ✓ | ? | ? | |
 | NiteHawk | ✓ | int1 | gpio21 |
+| NiteHawk SB | ✓ | int1 | gpio27 |
 | EBB36 | with soldering | int1/int2 | choose | |
 
 ## Configuration
